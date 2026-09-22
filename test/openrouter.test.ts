@@ -128,7 +128,7 @@ test("OpenRouter agent loop persists tool messages and resumes the same history"
         effort: null,
         model: null,
         serviceTier: null,
-        openrouter: { model: null },
+        chat: { model: null },
         channel: {
           server: {} as any,
           send: async (args: any) => {
@@ -209,7 +209,7 @@ test("OpenRouter stop aborts the pending request and keeps prior usage", async (
       effort: null,
       model: null,
       serviceTier: null,
-      openrouter: { model: null },
+      chat: { model: null },
       channel: {
         server: {} as any,
         send: async () => ({ content: [{ type: "text", text: "sent" }] }),

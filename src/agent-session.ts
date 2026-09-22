@@ -25,7 +25,8 @@ import type { ServiceTier } from "./preset-config.ts";
 import type { Provider } from "./provider.ts";
 import { TG_SEND_TOOL, tgSendDelivered, type TgChannel, type TgSendArgs } from "./tg-tools.ts";
 import { OpenRouterAgentSession } from "./openrouter-session.ts";
-import type { OpenRouterSettings } from "./openrouter-config.ts";
+import { OpenCodeGoAgentSession } from "./opencode-go-session.ts";
+import type { ChatSettings } from "./openrouter-config.ts";
 
 export interface AgentInput {
   text: string;
@@ -37,7 +38,8 @@ export interface AgentSettings {
   effort: Effort;
   model: Model;
   serviceTier: ServiceTier;
-  openrouter: OpenRouterSettings | null;
+  /** Preset-shaped settings for OpenRouter and OpenCode Go; null elsewhere. */
+  chat: ChatSettings | null;
 }
 
 export interface AgentTurnResult {
@@ -132,7 +134,7 @@ class ClaudeAgentSession implements AgentSession {
       effort: opts.effort,
       model: opts.model,
       serviceTier: opts.serviceTier,
-      openrouter: opts.openrouter,
+      chat: opts.chat,
     };
   }
 
@@ -336,7 +338,7 @@ class CodexAgentSession implements AgentSession {
       effort: opts.effort,
       model: opts.model,
       serviceTier: opts.serviceTier,
-      openrouter: opts.openrouter,
+      chat: opts.chat,
     };
   }
 
@@ -650,8 +652,7 @@ function appServerToolName(item: any): string | null {
 
 export function createAgentSession(opts: AgentSessionOptions): AgentSession {
   if (opts.provider === "codex") return new CodexAgentSession(opts);
-  if (opts.provider === "openrouter") {
-    return new OpenRouterAgentSession(opts);
-  }
+  if (opts.provider === "openrouter") return new OpenRouterAgentSession(opts);
+  if (opts.provider === "opencode-go") return new OpenCodeGoAgentSession(opts);
   return new ClaudeAgentSession(opts);
 }

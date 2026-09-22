@@ -3,6 +3,8 @@ import { parseCodexPresets, parseDefaultCodexPreset } from "./preset-config.ts";
 import { parseProvider } from "./provider.ts";
 import { parseOpenRouterPresets } from "./openrouter-config.ts";
 import { normalizeOpenRouterModel } from "./openrouter-model.ts";
+import { parseGoPresets } from "./go-config.ts";
+import { normalizeGoModel } from "./go-model.ts";
 
 function req(name: string): string {
   const v = process.env[name];
@@ -43,7 +45,9 @@ const hours = (name: string, fallback: number) =>
   (Number(process.env[name] ?? fallback)) * 3600_000;
 
 const provider = parseProvider(process.env.PROVIDER ?? "claude");
-if (!provider) throw new Error(`PROVIDER must be "claude", "codex", or "openrouter"`);
+if (!provider) {
+  throw new Error('PROVIDER must be "claude", "codex", "openrouter", or "opencode-go"');
+}
 const codexPresets = parseCodexPresets(process.env.CODEX_PRESETS);
 const openrouterApiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
 const openrouterEnabled = Boolean(openrouterApiKey);
@@ -59,6 +63,35 @@ if (![openrouterMaxSteps, openrouterTurnTimeoutMs, openrouterMaxToolOutput, open
 }
 if (provider === "openrouter" && !openrouterEnabled) {
   throw new Error("PROVIDER=openrouter requires a non-empty OPENROUTER_API_KEY");
+}
+
+// OpenCode Go: a subscription behind `https://opencode.ai/zen/go/v1`, hidden
+// from `/provider` while the key is empty, exactly like OpenRouter.
+const goApiKey = process.env.OPENCODE_GO_API_KEY?.trim() ?? "";
+const goEnabled = Boolean(goApiKey);
+const goBaseUrl = (
+  process.env.OPENCODE_GO_BASE_URL?.trim() || "https://opencode.ai/zen/go/v1"
+).replace(/\/+$/, "");
+const goModel = normalizeGoModel(process.env.OPENCODE_GO_MODEL?.trim() || "glm-5.2");
+if (!goModel) {
+  throw new Error(
+    "OPENCODE_GO_MODEL must be a model id such as `kimi-k3` or `opencode-go/kimi-k3`",
+  );
+}
+const goPresets = parseGoPresets(process.env.OPENCODE_GO_PRESETS);
+const goMaxSteps = Number(process.env.OPENCODE_GO_MAX_STEPS ?? 24);
+const goTurnTimeoutMs = Number(process.env.OPENCODE_GO_TURN_TIMEOUT_MINUTES ?? 30) * 60_000;
+const goMaxToolOutput = Number(process.env.OPENCODE_GO_MAX_TOOL_OUTPUT ?? 20_000);
+const goContextWindow = Number(process.env.OPENCODE_GO_CONTEXT_WINDOW ?? 64_000);
+if (
+  ![goMaxSteps, goTurnTimeoutMs, goMaxToolOutput, goContextWindow].every(
+    (n) => Number.isFinite(n) && n > 0,
+  )
+) {
+  throw new Error("OpenCode Go limits must be positive numbers");
+}
+if (provider === "opencode-go" && !goEnabled) {
+  throw new Error('PROVIDER="opencode-go" requires a non-empty OPENCODE_GO_API_KEY');
 }
 
 export const cfg = {
@@ -84,6 +117,16 @@ export const cfg = {
   openrouterTurnTimeoutMs,
   openrouterMaxToolOutput,
   openrouterContextWindow,
+  goApiKey,
+  goEnabled,
+  goModel,
+  goPresets,
+  goBaseUrl,
+  goHistoryPath: process.env.OPENCODE_GO_HISTORY_PATH ?? "./data/opencode-go-sessions",
+  goMaxSteps,
+  goTurnTimeoutMs,
+  goMaxToolOutput,
+  goContextWindow,
   codexPresets,
   codexDefaultPreset: parseDefaultCodexPreset(process.env.CODEX_DEFAULT_PRESET, codexPresets),
   // "auto": auto-approve the ALLOWED_TOOLS allowlist, deny everything else,

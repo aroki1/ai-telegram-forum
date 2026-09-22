@@ -40,6 +40,7 @@ import {
 import {
   openRouterModelPicker,
   type OpenRouterSettings,
+  type ChatSettings,
 } from "./openrouter-config.ts";
 import { launchPresetPicker } from "./launch-preset.ts";
 import {
@@ -60,14 +61,17 @@ import {
   parseProvider,
   providerGroup,
   providerLabel,
+  usesChatSettings,
   type Provider,
 } from "./provider.ts";
+import { runnableGoModels } from "./opencode-go.ts";
 import { startSweep } from "./sweep.ts";
 import {
   createTopic,
   getTopic,
   getDefaultProgress,
   setOpenRouterSettings,
+  setChatSettings,
   setCodexSettings,
   setDefaultProgress,
   setEffort,
@@ -98,7 +102,7 @@ function topicUsageText(t: Topic): string {
     `turns: ${t.turns}\n` +
     `agent: ${providerLabel(t.provider)}\n` +
     `model: ${modelLabel(t.model, defaultModel(t.provider), t.provider)}\n` +
-    (t.provider === "openrouter"
+    (usesChatSettings(t.provider)
       ? `preset: ${t.openrouter_settings?.preset ?? "custom/default"}\n`
       : `effort: ${effortLabel(t.effort, defaultEffort(t.cwd, t.provider))}\n`) +
     (t.provider === "codex" ? `mode: ${serviceTierLabel(t.service_tier)}\n` : "") +
@@ -114,24 +118,25 @@ function totalsText(): string {
     provider === "codex" && cfg.codexPresets.length
       ? codexPresetPicker(nextModel, nextEffort, nextServiceTier).selected(null)
       : null;
-  const openrouter =
-    provider === "openrouter"
-      ? openRouterModelPicker(nextOpenRouterSettings, cfg.openrouterModel, cfg.openrouterPresets).selected(null)
-      : null;
+  const chat = usesChatSettings(provider)
+    ? chatModelPicker(nextChatSettings, provider).selected(null)
+    : null;
   return (
     `📊 *All topics*\n` +
     `topics: ${s.topics} · turns: ${s.turns}\n` +
     `next session agent: ${providerLabel(provider)}\n` +
     (preset ? `next session preset: ${preset.name}\n` : "") +
-    (openrouter?.settings.preset ? `next session preset: ${openrouter.settings.preset}\n` : "") +
+    (chat?.settings.preset ? `next session preset: ${chat.settings.preset}\n` : "") +
     `next session model: ${modelLabel(
-      preset?.model ?? openrouter?.settings.model ?? nextModel ?? null,
+      preset?.model ?? chat?.settings.model ?? nextModel ?? null,
       defaultModel(provider),
       provider,
     )}\n` +
-    (provider === "openrouter"
-      ? ""
-      : `next session effort: ${effortLabel(preset?.effort ?? nextEffort ?? null, defaultEffort(cfg.defaultCwd, provider))}\n`) +
+    (usesChatSettings(provider) && provider === "opencode-go"
+      ? `next session effort: ${effortLabel(preset?.effort ?? nextEffort ?? null, defaultEffort(cfg.defaultCwd, provider))}\n`
+      : usesChatSettings(provider)
+        ? ""
+        : `next session effort: ${effortLabel(preset?.effort ?? nextEffort ?? null, defaultEffort(cfg.defaultCwd, provider))}\n`) +
     (preset ? `next session mode: ${serviceTierLabel(preset.serviceTier)}\n` : "") +
     `tokens: ${fmt(s.in_tokens)} in / ${fmt(s.out_tokens)} out\n` +
     `cost: ${s.cost_known ? `$${s.cost_usd.toFixed(4)}` : "unavailable"}`
@@ -149,7 +154,35 @@ let nextToolcalls: Toolcalls = "off";
 let nextModel: Model | undefined;
 let nextServiceTier: ServiceTier | undefined;
 let nextProvider: Provider | undefined;
-let nextOpenRouterSettings: OpenRouterSettings | undefined;
+let nextChatSettings: OpenRouterSettings | undefined;
+
+/** Which agents this installation can actually start right now. */
+function availableProviders(): string {
+  const names = ["`claude`", "`codex`"];
+  if (cfg.openrouterEnabled) names.push("`openrouter`");
+  if (cfg.goEnabled) names.push("`opencode-go`");
+  return names.length > 2
+    ? `${names.slice(0, -1).join(", ")}, or ${names.at(-1)}`
+    : `${names.join(" or ")}`;
+}
+
+/**
+ * The preset/model picker for whichever chat provider is in force. `models`
+ * comes from Go's catalog, which is fetched by the caller so a synchronous
+ * summary line can pass nothing and still render.
+ */
+function chatModelPicker(
+  settings: ChatSettings | null | undefined,
+  provider: Provider,
+  models: string[] = [],
+) {
+  return provider === "opencode-go"
+    ? openRouterModelPicker(settings ?? null, cfg.goModel, cfg.goPresets, { key: "g", models })
+    : openRouterModelPicker(settings ?? null, cfg.openrouterModel, cfg.openrouterPresets, {
+        key: "o",
+        models,
+      });
+}
 
 /**
  * Where a `/effort` or `/model` lands. `null` is the launcher — the choice is
@@ -211,8 +244,8 @@ async function applyModel(
   if (t === null) {
     const provider = nextProvider ?? cfg.provider;
     nextModel = model;
-    if (provider === "openrouter") {
-      nextOpenRouterSettings = model ? { model, preset: null } : { model: null };
+    if (usesChatSettings(provider)) {
+      nextChatSettings = model ? { model, preset: null } : { model: null };
     }
     if (announce) {
       await replySilently(
@@ -230,6 +263,9 @@ async function applyModel(
   else if (t.provider === "openrouter") {
     setOpenRouterSettings(t.thread_id, model ? { model, preset: null } : { model: null });
     setModel(t.thread_id, model);
+  } else if (t.provider === "opencode-go") {
+    setChatSettings(t.thread_id, model ? { model, preset: null } : { model: null });
+    setModel(t.thread_id, model);
   } else setModel(t.thread_id, model);
   if (announce) {
     await replySilently(
@@ -240,8 +276,8 @@ async function applyModel(
   }
 }
 
-/** Apply a complete OpenRouter preset or custom setting atomically. */
-async function applyOpenRouterSettings(
+/** Apply a complete preset-shaped setting atomically (OpenRouter or Go). */
+async function applyChatSettings(
   ctx: any,
   thread: number | undefined,
   settings: OpenRouterSettings,
@@ -249,27 +285,26 @@ async function applyOpenRouterSettings(
 ): Promise<void> {
   const t = await target(ctx, thread);
   if (t === undefined) return;
+  const provider = t?.provider ?? nextProvider ?? cfg.provider;
+  const name = (settings.model ?? defaultModel(provider)) + (settings.preset ? ` · 🎛️ ${settings.preset}` : "");
   if (t === null) {
-    nextOpenRouterSettings = { ...settings };
+    nextChatSettings = { ...settings };
     nextModel = settings.model ?? undefined;
     if (announce) {
-      await replySilently(
-        ctx,
-        `🤖 next session: ${settings.model ?? cfg.openrouterModel}${settings.preset ? ` · 🎛️ ${settings.preset}` : ""}`,
-        { message_thread_id: thread },
-      );
+      await replySilently(ctx, `🤖 next session: ${name}`, { message_thread_id: thread });
     }
     return;
   }
   const s = liveSession(t.thread_id);
-  if (s) s.setOpenRouterSettings(settings);
+  if (t.provider === "opencode-go") {
+    // Go's model and effort are independent; an OpenRouter preset *is* the
+    // reasoning and clears the level, which is why they do not share a call.
+    if (s) s.setGoSettings(settings);
+    else setChatSettings(t.thread_id, settings);
+  } else if (s) s.setOpenRouterSettings(settings);
   else setOpenRouterSettings(t.thread_id, settings);
   if (announce) {
-    await replySilently(
-      ctx,
-      `🤖 model: ${settings.model ?? cfg.openrouterModel}${settings.preset ? ` · 🎛️ ${settings.preset}` : ""}`,
-      { message_thread_id: thread },
-    );
+    await replySilently(ctx, `🤖 model: ${name}`, { message_thread_id: thread });
   }
 }
 
@@ -312,7 +347,7 @@ async function applyProvider(
   nextModel = undefined;
   nextEffort = undefined;
   nextServiceTier = undefined;
-  nextOpenRouterSettings = undefined;
+  nextChatSettings = undefined;
   if (announce) {
     await replySilently(ctx, `🧠 next session agent: ${providerLabel(provider)}`, {
       message_thread_id: thread,
@@ -433,6 +468,8 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
       const resume =
         t.provider === "openrouter"
           ? `OpenRouter history is stored in ${cfg.openrouterHistoryPath}/${t.session_id}.jsonl and resumes automatically`
+          : t.provider === "opencode-go"
+          ? `OpenCode Go history is stored in ${cfg.goHistoryPath}/${t.session_id}.jsonl and resumes automatically`
           : t.provider === "codex"
           ? `codex resume ${t.session_id}`
           : `claude --resume ${t.session_id}`;
@@ -471,7 +508,7 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
       if (!provider) {
         await replySilently(
           ctx,
-          `⚠️ unknown agent. Use ${cfg.openrouterEnabled ? "`claude`, `codex`, or `openrouter`" : "`claude` or `codex`"}.`,
+          `⚠️ unknown agent. Use ${availableProviders()}.`,
           {
           message_thread_id: thread,
           parse_mode: "Markdown",
@@ -482,6 +519,12 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
           await replySilently(ctx, "⚠️ OpenRouter is disabled: set a non-empty OPENROUTER_API_KEY.", {
             message_thread_id: thread,
           });
+        } else if (provider === "opencode-go" && !cfg.goEnabled) {
+          await replySilently(
+            ctx,
+            "⚠️ OpenCode Go is disabled: set a non-empty OPENCODE_GO_API_KEY.",
+            { message_thread_id: thread },
+          );
         } else await applyProvider(ctx, thread, provider);
       }
       return true;
@@ -496,7 +539,12 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
     void askPick(bot, {
       threadId: thread,
       title: "agent for the next session",
-      groups: [providerGroup(current, cfg.provider, cfg.openrouterEnabled)],
+      groups: [
+        providerGroup(current, cfg.provider, {
+          openrouter: cfg.openrouterEnabled,
+          opencodeGo: cfg.goEnabled,
+        }),
+      ],
     })
       .then(({ picks }) =>
         applyProvider(ctx, thread, asProvider(picks.p ?? null, cfg.provider), false),
@@ -548,14 +596,19 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
             nextCodex?.serviceTier ?? topic?.service_tier ?? null,
           )
         : undefined;
-    const openrouterModels =
-      !isEffort && provider === "openrouter"
-        ? openRouterModelPicker(
+    // Go's model list comes from its live catalog, which says nothing about
+    // capabilities — only ids — so this fetches once and filters to the
+    // formats this build can actually speak.
+    const goModels =
+      !isEffort && provider === "opencode-go" ? await runnableGoModels() : [];
+    const chatModels =
+      !isEffort && usesChatSettings(provider)
+        ? chatModelPicker(
             inLauncher
-              ? nextOpenRouterSettings ?? (nextModel ? { model: nextModel } : null)
+              ? nextChatSettings ?? (nextModel ? { model: nextModel } : null)
               : topic?.openrouter_settings ?? (topic?.model ? { model: topic.model } : null),
-            cfg.openrouterModel,
-            cfg.openrouterPresets,
+            provider,
+            goModels,
           )
         : undefined;
     void askPick(bot, {
@@ -570,8 +623,7 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
             ),
           ]
         : [
-            codexModels?.group ??
-              openrouterModels?.group ??
+            chatModels?.group ??
               modelGroup(inLauncher ? (nextModel ?? null) : (topic?.model ?? null), provider),
           ],
     })
@@ -583,8 +635,10 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
             ? applyCodexPreset(ctx, thread, choice.preset)
             : applyModel(ctx, thread, choice.model, false);
         }
-        const openrouterChoice = openrouterModels?.selected(picks.o ?? null);
-        if (openrouterChoice) return applyOpenRouterSettings(ctx, thread, openrouterChoice.settings, false);
+        const chatChoice = chatModels
+          ? chatModels.selected(picks[chatModels.group.key] ?? null)
+          : undefined;
+        if (chatChoice) return applyChatSettings(ctx, thread, chatChoice.settings, false);
         return applyModel(ctx, thread, asModel(picks.m ?? null), false);
       })
       .catch((err) => console.warn(`[${cmd}] applying the picked value failed:`, String(err)));
@@ -618,7 +672,9 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
   const local = t ? topicUsageText(t) : totalsText();
 
   const provider = t?.provider ?? nextProvider ?? cfg.provider;
-  if (provider === "openrouter") {
+  // Chat providers report no plan limits through a local CLI — OpenCode Go's
+  // own limits endpoint lands with the /usage work.
+  if (usesChatSettings(provider)) {
     await replySilently(ctx, local, { message_thread_id: thread, parse_mode: "Markdown" });
     return true;
   }
@@ -706,16 +762,23 @@ async function launch(
   // the topic created. An untouched picker falls through in seconds, so a
   // launch nobody answers still starts, but once the user reaches for a button
   // the launch waits for them to finish.
+  // Go's catalog is fetched before the picker is built: a stale or
+  // unreachable catalog then degrades to presets instead of stalling the
+  // launch, and the picker itself stays synchronous.
+  const goModels = cfg.goEnabled && provider !== "claude" && provider !== "codex"
+    ? await runnableGoModels()
+    : [];
   const presetPicker =
-    provider === "codex" || provider === "openrouter"
+    provider === "codex" || provider === "openrouter" || provider === "opencode-go"
       ? launchPresetPicker(
           provider,
           nextModel,
           nextEffort,
           nextServiceTier,
-          provider === "openrouter"
-            ? nextOpenRouterSettings ?? (nextModel ? { model: nextModel } : null)
-            : nextOpenRouterSettings,
+          usesChatSettings(provider)
+            ? nextChatSettings ?? (nextModel ? { model: nextModel } : null)
+            : nextChatSettings,
+          goModels,
         )
       : undefined;
   const { picks, cancelled, messageId } = await askPick(bot, {
@@ -738,14 +801,18 @@ async function launch(
   const launchChoice = presetPicker?.selected(picks.r ?? null);
   const selectedProvider = launchChoice?.provider ?? provider;
   const preset = launchChoice?.provider === "codex" ? launchChoice.codex : undefined;
-  const openrouterSettings =
-    launchChoice?.provider === "openrouter" ? launchChoice.openrouter : undefined;
-  const effort = selectedProvider === "openrouter"
-    ? null
-    : preset?.effort ?? asEffort(picks.e ?? null, selectedProvider);
-  const model = selectedProvider === "openrouter"
-    ? openrouterSettings?.model ?? null
-    : preset?.model ?? asModel(picks.m ?? null);
+  // Both chat providers hand back the same preset-shaped blob; which one it
+  // belongs to is already settled by `selectedProvider`.
+  const chatSettings = launchChoice && launchChoice.provider !== "codex" ? launchChoice.chat : undefined;
+  const effort =
+    selectedProvider === "openrouter"
+      ? null
+      : selectedProvider === "opencode-go"
+        ? // The launch picker offers Go no effort button — model and reasoning
+          // are independent there — so a level set with `/effort` survives.
+          (nextEffort ?? null)
+        : preset?.effort ?? asEffort(picks.e ?? null, selectedProvider);
+  const model = preset?.model ?? chatSettings?.model ?? asModel(picks.m ?? null);
   const serviceTier: ServiceTier = selectedProvider === "codex"
     ? preset?.serviceTier ?? asServiceTier(picks.s ?? null)
     : null;
@@ -755,7 +822,7 @@ async function launch(
   nextEffort = undefined;
   nextModel = undefined;
   nextServiceTier = undefined;
-  nextOpenRouterSettings = undefined;
+  nextChatSettings = undefined;
   nextProvider = undefined;
 
   const topic = await ctx.api.createForumTopic(cfg.chatId, title);
@@ -768,7 +835,7 @@ async function launch(
     effort,
     model,
     serviceTier,
-    openrouterSettings: openrouterSettings ?? null,
+    openrouterSettings: chatSettings ?? null,
   });
   setActivity(tid, "progress", progress);
   setActivity(tid, "toolcalls", toolcalls);
@@ -779,8 +846,8 @@ async function launch(
     `→ «${title}»  (cwd: ${cwd})` +
     (preset
       ? `  ⚙️ Codex · ${preset.name}`
-      : openrouterSettings?.preset
-        ? `  🌐 OpenRouter · ${openrouterSettings.preset}`
+      : chatSettings?.preset
+        ? `  ${selectedProvider === "opencode-go" ? "⚡ OpenCode Go" : "🌐 OpenRouter"} · ${chatSettings.preset}`
       : `  🤖 ${modelLabel(model, defaultModel(selectedProvider), selectedProvider)}` +
         (selectedProvider === "openrouter" ? "" : `  ⚙️ ${effortLabel(effort, defaultEffort(cwd, selectedProvider))}`) +
         (selectedProvider === "codex" ? `  🚀 ${serviceTierLabel(serviceTier)}` : ""));
@@ -834,7 +901,7 @@ async function launch(
     effort,
     model,
     service_tier: serviceTier,
-    openrouter_settings: openrouterSettings ?? null,
+    openrouter_settings: chatSettings ?? null,
   }).send(contentOf(prompt, images));
 }
 

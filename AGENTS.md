@@ -21,7 +21,14 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/chat-message.ts` | the normalized transcript message and tool spec |
 | `src/dialect.ts` | the wire-format seam: `Dialect`, `TurnSettings`, `ChatRequestError` |
 | `src/agent-loop.ts` | dialect-free turn runner: compaction, tools, history, step limit |
+| `src/chat-transport.ts` | shared HTTP: retries, backoff, error envelopes, per-host headers |
+| `src/dialect-oa-compat.ts` | the OpenAI `chat/completions` dialect and its usage parser |
+| `src/chat-session.ts` | one chat session driving any `ChatProvider`; resolves its dialect per model |
+| `src/chat-history.ts` | append-only JSONL transcript, rooted per provider |
 | `src/openrouter.ts` | OpenRouter transport, model catalog, and its `oa-compat` dialect |
+| `src/opencode-go.ts` | OpenCode Go transport, catalog, dialect resolution |
+| `src/go-model.ts` | Go model ids and which wire format a family is served over |
+| `src/go-config.ts` | `OPENCODE_GO_PRESETS` parsing |
 | `src/codex-app-server.ts` | one-shot Codex app-server requests |
 | `src/codex-app-server-client.ts` | persistent topic app-server connection; main + `/btw` turns |
 | `src/codex-limits.ts` | Codex plan limits through the local app-server |

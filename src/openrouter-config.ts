@@ -1,4 +1,4 @@
-import type { PickGroup, PickValue } from "./picker.ts";
+import type { PickGroup, PickOption, PickValue } from "./picker.ts";
 import { normalizeOpenRouterModel } from "./openrouter-model.ts";
 
 export type OpenRouterReasoning = unknown;
@@ -27,6 +27,13 @@ export interface OpenRouterSettings {
   provider?: OpenRouterProviderPreferences;
   fallbacks?: string[];
 }
+
+/**
+ * The same preset-shaped blob drives OpenCode Go, which simply never sets
+ * `fallbacks` or `provider` — its presets parser rejects them. One settings
+ * column, one picker, two hosts.
+ */
+export type ChatSettings = OpenRouterSettings;
 
 const MODEL_ID = /^[a-z0-9][a-z0-9._:+~/-]*$/i;
 
@@ -145,11 +152,19 @@ export function openRouterModelPicker(
   initial: OpenRouterSettings | null | undefined,
   defaultModel: string,
   presets: OpenRouterPresetConfig[],
+  opts: { key?: string; models?: string[] } = {},
 ): { group: PickGroup; selected(value: PickValue): OpenRouterModelChoice } {
-  const options = [
+  const options: PickOption[] = [
     ...presets.map((preset, index) => ({ value: `preset:${index}`, label: `🎛️ ${preset.name}` })),
     { value: `model:${defaultModel}`, label: labelForModel(defaultModel, defaultModel) },
   ];
+  // Extra ids from a live catalog. The default is already listed, so this only
+  // ever widens the buttons rather than duplicating one.
+  for (const id of opts.models ?? []) {
+    if (!options.some((option) => option.value === `model:${id}`)) {
+      options.push({ value: `model:${id}`, label: id });
+    }
+  }
   const currentModel = initial?.model ?? defaultModel;
   if (!options.some((option) => option.value === `model:${currentModel}`)) {
     options.push({ value: `model:${currentModel}`, label: currentModel });
@@ -176,7 +191,7 @@ export function openRouterModelPicker(
 
   return {
     group: {
-      key: "o",
+      key: opts.key ?? "o",
       options,
       perRow: 2,
       initial: initialValue,

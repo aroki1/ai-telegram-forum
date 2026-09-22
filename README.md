@@ -1,6 +1,6 @@
 # ai-telegram-forum
 
-Run **Claude Code, Codex, or OpenRouter agents from Telegram**. Send a task to
+Run **Claude Code, Codex, OpenRouter, or OpenCode Go agents from Telegram**. Send a task to
 General, and the bot creates a topic for it. Each topic keeps its own session,
 conversation history, and working directory.
 
@@ -26,6 +26,8 @@ You need Node.js 22 or later and credentials for at least one provider:
 - **Codex:** sign in with `codex login` (after installation, `npx codex login`
   uses the project's bundled CLI).
 - **OpenRouter:** get an API key; no CLI login is needed.
+- **OpenCode Go:** subscribe and copy the key from
+  [opencode.ai/auth](https://opencode.ai/auth); no CLI login is needed.
 
 Run the bot as the same OS user that owns your CLI credentials and projects.
 
@@ -71,7 +73,7 @@ PROJECTS={}
 PROVIDER=claude
 ```
 
-Set `PROVIDER` to `claude`, `codex`, or `openrouter`. For OpenRouter, also set
+Set `PROVIDER` to `claude`, `codex`, `openrouter`, or `opencode-go`. For OpenRouter, also set
 `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL`.
 Other settings are documented in [`.env.example`](./.env.example).
 
@@ -112,7 +114,7 @@ shows tool activity while it works.
 
 ### Commands
 
-- `/provider` — choose Claude, Codex, or OpenRouter for the next session.
+- `/provider` — choose Claude, Codex, OpenRouter, or OpenCode Go for the next session.
   Existing topics keep their provider.
 - `/model` — choose a model or configured preset; `/model <id>` sets one directly.
 - `/effort` — choose reasoning effort; `/effort high` sets it directly.
@@ -168,8 +170,11 @@ Defaults and optional picker presets live in `.env`:
 `OPENROUTER_MODEL`, and `OPENROUTER_PRESETS`.
 When starting a Codex or OpenRouter session, the configured Codex presets and
 OpenRouter presets appear in one picker. Choosing `Free` or `Deepseek` switches
-that new topic to OpenRouter automatically. See [`.env.example`](./.env.example)
-for examples. OpenRouter appears only when its API key is configured.
+that new topic to OpenRouter automatically. OpenCode Go presets join the same
+picker under `OPENCODE_GO_PRESETS`, and its model buttons come from the live
+catalog of your subscription. See [`.env.example`](./.env.example) for
+examples. OpenRouter and OpenCode Go appear only while their API key is
+configured.
 
 ## Permissions and stored data
 
@@ -194,7 +199,8 @@ attachments on disk. Claude and Codex sessions remain resumable from the termina
 
 Bot state and attachments are stored under `data/` by default. Claude and Codex
 keep their native session history; OpenRouter history defaults to
-`data/openrouter-sessions/`.
+`data/openrouter-sessions/` and OpenCode Go's to
+`data/opencode-go-sessions/`.
 
 ## Development
 

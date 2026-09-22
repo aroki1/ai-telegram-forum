@@ -32,13 +32,46 @@ which lag the catalog.
 
 | Dialect | Endpoint | Models | Auth header |
 |---|---|---|---|
-| `oa-compat` | `/v1/chat/completions` | GLM, Kimi, LongCat, DeepSeek, MiMo, Hy | `Authorization: Bearer` |
-| `messages` | `/v1/messages` | Qwen3.x, MiniMax | **`x-api-key`** |
+| `oa-compat` | `/v1/chat/completions` | GLM, Kimi, **Qwen**, **MiniMax**, LongCat, DeepSeek, MiMo, Hy | `Authorization: Bearer` |
+| `messages` | `/v1/messages` | *not needed — see below* | **`x-api-key`** |
 | `responses` | `/v1/responses` | Grok, GPT‑5.6 Luna, Muse Spark | `Authorization: Bearer` |
 
-The `messages` dialect needs a different auth header from the other two. This
-is easy to miss and shows up as a confusing `401 Missing API key` while the
-`Authorization` header is clearly present.
+**Correction from live verification.** The table above is what the docs imply
+and what a first pass implemented; sending real requests showed it is wrong in
+one direction and needs care in the other.
+
+- `qwen3.8-max` and `minimax-m3` are listed under `@ai-sdk/anthropic` in the
+  docs and both answer `chat/completions` with **200**. That column describes
+  how *OpenCode's own client* calls a model, not what the gateway accepts. So
+  there is no Anthropic `messages` dialect to build: **the whole `messages`
+  branch is dead**, and a rule that excluded Qwen and MiniMax would have hidden
+  six working models from the picker.
+- What does *not* answer `chat/completions` is exactly the `responses`
+  families — `grok-4.7`, `grok-4.6`, `gpt-5.6-luna`,
+  `muse-spark-1.3-contributor` all return
+  `503 {"error":{"type":"server_error","message":"Upstream request failed: Endpoint is unavailable."}}`.
+  Without a key the gateway says it plainly instead:
+  `401 ModelError … not supported for format oa-compat`.
+
+So the real partition is one rule, not three: **everything is `oa-compat`
+except `^(grok|gpt|muse)-`**, and only `responses` is left to build.
+
+Error envelopes are mixed rather than uniformly Anthropic: `401` answers with
+`{"type":"error","error":{…}}` and `503` with OpenAI's `{"error":{…}}`. The
+parser reads `error.type` / `error.message` off either shape, which is why
+classification works at all.
+
+`x-api-key` remains the header `/v1/messages` wants — documented here because
+if that dialect is ever built, a `Bearer` token produces a confusing
+`401 Missing API key` while `Authorization` is clearly present.
+
+**Verified directly:**
+
+| Probe | Result |
+|---|---|
+| `chat/completions` + `reasoning: {effort:"low"}` on `kimi-k3` | **200** — `/effort` is wire-legal here, so the ladder stands as designed |
+| `chat/completions` + a `tools` array on `kimi-k3` | **200**, `finish_reason: "tool_calls"` — function calling works end to end |
+| response `usage` | `prompt_tokens` / `completion_tokens` / `prompt_tokens_details.cached_tokens` — **no `cost`**, so `costUsd` comes back `null` and `/usage` must not invent dollars |
 
 ### Required headers on every request
 
@@ -127,7 +160,6 @@ ModelProfile {
    | Rule | Dialect |
    |---|---|
    | `grok-`, `gpt-`, `muse-` | `responses` |
-   | `qwen`, `minimax-` | `messages` |
    | everything else | `oa-compat` |
 
 2. **Per-id overrides** in `.env`, for when a rule is wrong.
@@ -285,17 +317,22 @@ requires.
 
 ---
 
-## Delivery — Variant A
+## Delivery — Variant A, one more commit than planned
 
-One PR, four commits. Every commit must pass `npm run typecheck` and
-`npm test`, so any point in the history is buildable.
+One PR. Every commit must pass `npm run typecheck` and `npm test`, so any
+point in the history is buildable. The live probes above split commit 2 in two:
+the `messages` dialect turned out not to exist, so the remaining work after
+the provider was a single family rather than two.
 
-1. `refactor: split the OpenRouter client into AgentLoop and Dialect` —
-   behaviour-neutral, OpenRouter keeps working unchanged.
-2. `feat: add the opencode-go provider` — dialects, profile resolution, config,
-   picker, mandatory headers.
-3. `feat: report OpenCode plan limits from /v1/usage`
-4. `feat: /export, hide resume for opencode-go, warn on Muse Spark`
+1. ✅ `docs: design the OpenCode Go provider`
+2. ✅ `refactor: split the OpenRouter turn runner into Dialect and AgentLoop`
+3. ✅ `feat: add the opencode-go provider` — transport, `oa-compat` dialect,
+   family rule, catalog-driven picker, presets, `/provider`, and the refusal
+   path for models this build cannot serve.
+4. `feat: speak the responses dialect for Grok, GPT-5.6 Luna and Muse` — the
+   round-trip `reasoning` state is the only real unknown left.
+5. `feat: report OpenCode plan limits from /v1/usage`
+6. `feat: /export, hide resume for opencode-go, warn on Muse Spark`
 
 Merged only when all four land and the bot has been exercised live.
 
@@ -303,14 +340,19 @@ Merged only when all four land and the bot has been exercised live.
 
 ## Open risks
 
-- **Their catalog churns.** Prefix rules are a default, not a contract; layer 3
-  (error-driven correction) is the safety net and must be in the first PR, not
-  a follow-up.
-- **`oa-compat` reasoning shape is unverified.** Whether Go's
-  `chat/completions` accepts `reasoning: {effort}` the way OpenRouter does
-  needs one live probe before commit 2.
-- **Model coverage for `responses`** is the largest unknown — it is the dialect
-  with round-trip state (`reasoning` items) and the only one with no
-  equivalent in the current codebase.
+- **Their catalog churns.** The family rule is a default, not a contract — and
+  it has already been wrong once, in the direction that would have hidden
+  working models. Keep the error-driven correction in mind even though the
+  rule now only excludes one family.
+- **`responses` is the only gap left**, and it is the dialect with round-trip
+  state (`reasoning` items) and no equivalent anywhere in the current
+  codebase. Everything else runs today: 5 of 5 provider tests pass, and the
+  live gateway answers `chat/completions` for every non-`responses` family.
+- **Go reports no dollars.** `usage` carries tokens and cached tokens only, so
+  `costUsd` is always `null` and the turn summary shows tokens alone. `/usage`
+  must not synthesise a price.
+- **`/effort` is legal but unverified in spirit.** The gateway accepts
+  `reasoning: {effort}` without complaint; what it *does* with it per model is
+  not something the response reveals.
 - **Key handling.** The key never leaves `.env`; the profile cache stores model
   ids and dialect only.

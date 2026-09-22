@@ -2,6 +2,7 @@ import { cfg } from "./config.ts";
 import type { PickGroup, PickValue } from "./picker.ts";
 import type { Provider } from "./provider.ts";
 import { normalizeOpenRouterModel } from "./openrouter-model.ts";
+import { normalizeGoModel } from "./go-model.ts";
 
 /**
  * `null` means "no choice of ours" — the session runs on its provider's model
@@ -45,7 +46,9 @@ export const defaultModel = (provider: Provider = cfg.provider): string =>
     ? cfg.codexModel
     : provider === "openrouter"
       ? cfg.openrouterModel
-      : cfg.claudeModel;
+      : provider === "opencode-go"
+        ? cfg.goModel
+        : cfg.claudeModel;
 
 /** A model id as a human reads it — its display name, or the id itself. */
 const displayName = (id: string, provider?: Provider): string =>
@@ -66,6 +69,7 @@ export function parseModel(raw: string, provider: Provider = cfg.provider): Mode
   const lower = v.toLowerCase();
   if (lower === "default" || lower === "reset" || lower === "-") return null;
   if (provider === "openrouter") return normalizeOpenRouterModel(v) ?? undefined;
+  if (provider === "opencode-go") return normalizeGoModel(v) ?? undefined;
   const known = modelsFor(provider).find(
     (m) => m.alias === lower || m.id.toLowerCase() === lower,
   );
@@ -82,9 +86,11 @@ export const asModel = (v: PickValue): Model => v ?? null;
 export const modelUsage = (provider: Provider): string =>
   provider === "openrouter"
     ? "⚠️ unknown OpenRouter model. Use an id such as `openrouter/free` or a link from openrouter.ai."
-    : `⚠️ unknown model. Use one of: ${modelsFor(provider)
-        .map((m) => m.alias)
-        .join(", ")}, default — or a full model id.`;
+    : provider === "opencode-go"
+      ? "⚠️ unknown OpenCode Go model. Use an id such as `kimi-k3` — `/model` shows what your subscription lists."
+      : `⚠️ unknown model. Use one of: ${modelsFor(provider)
+          .map((m) => m.alias)
+          .join(", ")}, default — or a full model id.`;
 
 /**
  * The known models, tick on the one in force. The provider model from env is the
@@ -93,7 +99,7 @@ export const modelUsage = (provider: Provider): string =>
  */
 export function modelGroup(initial: Model, provider: Provider = cfg.provider): PickGroup {
   const fallback = defaultModel(provider);
-  if (provider === "openrouter") {
+  if (provider === "openrouter" || provider === "opencode-go") {
     return {
       key: "m",
       options: [

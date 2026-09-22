@@ -7,7 +7,7 @@ import type { Effort } from "./effort.ts";
 import type { Model } from "./model.ts";
 import type { ServiceTier } from "./preset-config.ts";
 import type { Provider } from "./provider.ts";
-import type { OpenRouterSettings } from "./openrouter-config.ts";
+import type { OpenRouterSettings, ChatSettings } from "./openrouter-config.ts";
 
 export type TopicStatus = "active" | "closed";
 
@@ -113,6 +113,9 @@ const stmts = {
   setOpenRouterSettings: db.prepare(
     "UPDATE topics SET model = ?, effort = NULL, service_tier = NULL, openrouter_settings = ? WHERE thread_id = ?",
   ),
+  setChatSettings: db.prepare(
+    "UPDATE topics SET model = ?, openrouter_settings = ? WHERE thread_id = ?",
+  ),
   setSession: db.prepare(
     "UPDATE topics SET session_id = ?, last_activity = ? WHERE thread_id = ?",
   ),
@@ -217,11 +220,17 @@ export function setCodexSettings(
   stmts.setCodexSettings.run(model, effort, serviceTier, threadId);
 }
 
-export function setOpenRouterSettings(
-  threadId: number,
-  settings: OpenRouterSettings | null,
-): void {
+export function setOpenRouterSettings(threadId: number, settings: OpenRouterSettings | null): void {
   stmts.setOpenRouterSettings.run(settings?.model ?? null, settings ? JSON.stringify(settings) : null, threadId);
+}
+
+/**
+ * The same blob for OpenCode Go, which keeps the topic's `/effort` and service
+ * tier: model and reasoning are independent there, while an OpenRouter preset
+ * *is* the reasoning and clears both.
+ */
+export function setChatSettings(threadId: number, settings: ChatSettings | null): void {
+  stmts.setChatSettings.run(settings?.model ?? null, settings ? JSON.stringify(settings) : null, threadId);
 }
 
 export function setSession(threadId: number, sessionId: string): void {

@@ -1,7 +1,7 @@
 {
   "name": "ai-telegram-forum",
   "version": "0.1.0",
-  "description": "Telegram forum bridge for Claude Code, Codex, and OpenRouter — one topic = one agent session",
+  "description": "Telegram forum bridge for Claude Code, Codex, OpenRouter, and OpenCode Go — one topic = one agent session",
   "type": "module",
   "license": "MIT",
   "author": "Filo6699",
@@ -23,6 +23,7 @@
     "telegram-bot",
     "grammy",
     "ai-agent",
+    "opencode",
     "forum"
   ],
   "engines": {
