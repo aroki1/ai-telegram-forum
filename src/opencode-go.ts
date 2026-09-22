@@ -26,6 +26,7 @@ const VERSION = (() => {
 })();
 
 const USER_AGENT = `ai-telegram-forum/${VERSION}`;
+export const openCodeGoUserAgent = USER_AGENT;
 const AUTH = { label: "OpenCode Go", apiKeyName: "OPENCODE_GO_API_KEY" } as const;
 
 /**

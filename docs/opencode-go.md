@@ -212,9 +212,18 @@ corrected by the server's answer. Reuse the job
 `GET /v1/usage` already returns `percent` + `resetsAt` for three windows, which
 is exactly the `LimitWindow { label, utilization, resetsAt }` shape
 (`src/limits.ts:7`) that `planLimitsText` (`src/limits.ts:84`) already renders
-with `bar()` and `humanUntil()`.
+with `bar()` and `humanUntil()`. The live response:
+
+```json
+{"usage":{"rolling":{"status":"ok","percent":1,"resetsAt":"…"},
+          "weekly": {"status":"ok","percent":1,"resetsAt":"…"},
+          "monthly":{"status":"ok","percent":0,"resetsAt":"…"}}}
+```
 
 So the Go `/usage` path is one HTTP request and an existing renderer:
+`src/go-limits.ts` maps `rolling → "5h"`, `weekly → "Week"`, `monthly →
+"Month"`. Everything is labelled as *the provider's own accounting*, never as a
+number the bot derived.
 
 ```
 rolling → "5h"     weekly → "Week"    monthly → "Month"
@@ -361,7 +370,9 @@ the provider was a single family rather than two.
 4. ✅ `feat: speak the responses dialect for Grok, GPT-5.6 Luna and Muse` —
    flat tools, `call_id` tool results, top-level `instructions`, and the
    encrypted `reasoning` items replayed in order through `ChatMessage.wire`.
-5. `feat: report OpenCode plan limits from /v1/usage`
+5. ✅ `feat: report OpenCode plan limits from /v1/usage` — one HTTP call mapped
+   onto the meter `planLimitsText` already renders, so no pricing table was
+   ever needed.
 6. `feat: /export, hide resume for opencode-go, warn on Muse Spark`
 
 Merged only when all four land and the bot has been exercised live.

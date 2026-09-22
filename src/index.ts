@@ -52,6 +52,7 @@ import {
 import { fmtTokens } from "./fmt.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { fetchPlanLimits, planLimitsText } from "./limits.ts";
+import { fetchGoLimits } from "./go-limits.ts";
 import { MediaGroupCollector } from "./media-group.ts";
 import { registerPermissionButtons } from "./permission.ts";
 import { liveSession, sessionFor, type AgentInput } from "./session.ts";
@@ -105,6 +106,11 @@ function topicUsageText(t: Topic): string {
     (usesChatSettings(t.provider)
       ? `preset: ${t.openrouter_settings?.preset ?? "custom/default"}\n`
       : `effort: ${effortLabel(t.effort, defaultEffort(t.cwd, t.provider))}\n`) +
+    // Go keeps model and reasoning independent, so unlike an OpenRouter preset
+    // its effort is still worth a line of its own.
+    (t.provider === "opencode-go"
+      ? `effort: ${effortLabel(t.effort, defaultEffort(t.cwd, t.provider))}\n`
+      : "") +
     (t.provider === "codex" ? `mode: ${serviceTierLabel(t.service_tier)}\n` : "") +
     `tokens: ${fmt(t.in_tokens)} in / ${fmt(t.out_tokens)} out\n` +
     `cost: ${t.cost_known ? `$${t.cost_usd.toFixed(4)}` : "unavailable"}`
@@ -132,11 +138,9 @@ function totalsText(): string {
       defaultModel(provider),
       provider,
     )}\n` +
-    (usesChatSettings(provider) && provider === "opencode-go"
-      ? `next session effort: ${effortLabel(preset?.effort ?? nextEffort ?? null, defaultEffort(cfg.defaultCwd, provider))}\n`
-      : usesChatSettings(provider)
-        ? ""
-        : `next session effort: ${effortLabel(preset?.effort ?? nextEffort ?? null, defaultEffort(cfg.defaultCwd, provider))}\n`) +
+    (provider === "openrouter"
+      ? ""
+      : `next session effort: ${effortLabel(preset?.effort ?? nextEffort ?? null, defaultEffort(cfg.defaultCwd, provider))}\n`) +
     (preset ? `next session mode: ${serviceTierLabel(preset.serviceTier)}\n` : "") +
     `tokens: ${fmt(s.in_tokens)} in / ${fmt(s.out_tokens)} out\n` +
     `cost: ${s.cost_known ? `$${s.cost_usd.toFixed(4)}` : "unavailable"}`
@@ -672,9 +676,8 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
   const local = t ? topicUsageText(t) : totalsText();
 
   const provider = t?.provider ?? nextProvider ?? cfg.provider;
-  // Chat providers report no plan limits through a local CLI — OpenCode Go's
-  // own limits endpoint lands with the /usage work.
-  if (usesChatSettings(provider)) {
+  // OpenRouter's plan belongs to openrouter.ai and has nothing to read here.
+  if (provider === "openrouter") {
     await replySilently(ctx, local, { message_thread_id: thread, parse_mode: "Markdown" });
     return true;
   }
@@ -688,7 +691,11 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
   let plan: string;
   try {
     const limits =
-      provider === "codex" ? await fetchCodexPlanLimits() : await fetchPlanLimits();
+      provider === "opencode-go"
+        ? await fetchGoLimits()
+        : provider === "codex"
+          ? await fetchCodexPlanLimits()
+          : await fetchPlanLimits();
     plan = planLimitsText(limits, providerLabel(provider));
   } catch (err) {
     console.warn("[usage] plan limits failed:", String(err));

@@ -199,6 +199,37 @@ test("a model no provider can resolve fails before any request is made", async (
   }
 });
 
+test("Go plan limits map their three windows onto the meter the bot already renders", async () => {
+  const { goLimitsFrom } = await import("../src/go-limits.ts");
+
+  const limits = goLimitsFrom({
+    usage: {
+      rolling: { status: "ok", percent: 12, resetsAt: "2026-09-22T21:03:35.093Z" },
+      weekly: { status: "ok", percent: 3, resetsAt: "2026-09-28T00:00:00.000Z" },
+      monthly: { status: "ok", percent: 0, resetsAt: "2026-10-21T14:40:04.000Z" },
+    },
+  });
+  assert.deepEqual(limits?.windows.map((w) => w.label), ["5h", "Week", "Month"]);
+  assert.equal(limits?.windows[0]?.utilization, 12);
+  assert.equal(limits?.windows[0]?.resetsAt, "2026-09-22T21:03:35.093Z");
+  // The provider names itself in the header; a plan label would read twice.
+  assert.equal(limits?.subscription, null);
+
+  // A body with no windows must render nothing rather than a meter of zeroes.
+  assert.equal(goLimitsFrom({}), null);
+  assert.equal(goLimitsFrom({ usage: {} }), null);
+  assert.equal(goLimitsFrom(null), null);
+  assert.equal(goLimitsFrom("nonsense"), null);
+
+  // A window reported without a percentage keeps its reset time.
+  const partial = goLimitsFrom({
+    usage: { monthly: { status: "ok", resetsAt: "2026-10-21T14:40:04.000Z" } },
+  });
+  assert.deepEqual(partial?.windows, [
+    { label: "Month", utilization: null, resetsAt: "2026-10-21T14:40:04.000Z" },
+  ]);
+});
+
 test("the Go transport sends a stable x-opencode-session and its own user agent", async () => {
   const { OpenCodeGoClient } = await import("../src/opencode-go.ts");
   let sessionId = "session-one";

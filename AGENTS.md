@@ -30,6 +30,8 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/opencode-go.ts` | OpenCode Go transport, catalog, dialect resolution |
 | `src/go-model.ts` | Go model ids and which wire format a family is served over |
 | `src/go-config.ts` | `OPENCODE_GO_PRESETS` parsing |
+| `src/go-limits.ts` | OpenCode Go's plan windows from `/v1/usage` |
+| `src/opencode-go-session.ts` | binds the Go provider to the shared chat session |
 | `src/codex-app-server.ts` | one-shot Codex app-server requests |
 | `src/codex-app-server-client.ts` | persistent topic app-server connection; main + `/btw` turns |
 | `src/codex-limits.ts` | Codex plan limits through the local app-server |
