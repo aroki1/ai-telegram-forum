@@ -23,6 +23,7 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/agent-loop.ts` | dialect-free turn runner: compaction, tools, history, step limit |
 | `src/chat-transport.ts` | shared HTTP: retries, backoff, error envelopes, per-host headers |
 | `src/dialect-oa-compat.ts` | the OpenAI `chat/completions` dialect and its usage parser |
+| `src/dialect-responses.ts` | the OpenAI `responses` dialect; owns the opaque reasoning round trip |
 | `src/chat-session.ts` | one chat session driving any `ChatProvider`; resolves its dialect per model |
 | `src/chat-history.ts` | append-only JSONL transcript, rooted per provider |
 | `src/openrouter.ts` | OpenRouter transport, model catalog, and its `oa-compat` dialect |

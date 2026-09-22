@@ -1,6 +1,6 @@
 import type { ChatContentPart, ChatMessage, ToolSpec } from "./chat-message.ts";
 import type { Usage } from "./claude.ts";
-import type { ChatClient, Dialect, TurnSettings } from "./dialect.ts";
+import type { ChatClient, Dialect, ReadResult, TurnSettings } from "./dialect.ts";
 import { ChatRequestError } from "./dialect.ts";
 import { TG_SEND_TOOL } from "./tg-tools.ts";
 import {
@@ -208,7 +208,15 @@ export async function runAgentLoop(args: RunLoopArgs): Promise<LoopResult> {
       return failureResult(usage, answer, resolvedModel, formatError(err, label));
     }
 
-    const read = dialect.readResponse(response);
+    // A dialect may reject a response it cannot read — the `responses` API
+    // carries its failures inside a 200 body — so this is a failure like any
+    // other rather than something that escapes the loop.
+    let read: ReadResult;
+    try {
+      read = dialect.readResponse(response);
+    } catch (err) {
+      return failureResult(usage, answer, resolvedModel, formatError(err, label));
+    }
     usage = addUsage(usage, read.usage);
     if (read.resolvedModel) {
       resolvedModel = read.resolvedModel;

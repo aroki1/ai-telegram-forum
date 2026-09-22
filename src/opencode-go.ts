@@ -3,6 +3,7 @@ import { cfg } from "./config.ts";
 import type { TransportErrorContext, TransportOptions } from "./chat-transport.ts";
 import { ChatTransport, statusErrorMessage } from "./chat-transport.ts";
 import { oaCompatDialect } from "./dialect-oa-compat.ts";
+import { responsesDialect } from "./dialect-responses.ts";
 import type { Dialect } from "./dialect.ts";
 import { goFormatOf, normalizeGoModel, type GoFormat } from "./go-model.ts";
 
@@ -89,25 +90,34 @@ export const openCodeGoDialect: Dialect = oaCompatDialect({
   defaultContextWindow: cfg.goContextWindow,
 });
 
+/** Grok, GPT‑5.6 Luna and Muse answer only here. */
+export const openCodeGoResponsesDialect: Dialect = responsesDialect({
+  label: AUTH.label,
+  defaultContextWindow: cfg.goContextWindow,
+});
+
 /**
- * Resolve the dialect a Go model speaks, or null when this build has no
- * transport for that format. The family rule above is the cold start; a
- * refusal is worth remembering against the model id rather than re-guessing
- * every turn, which is what the profile cache in a later commit is for.
+ * Resolve the dialect a Go model speaks.
+ *
+ * The family rule above is the cold start; the gateway is the authority — for
+ * a `responses` model sent to `chat/completions` it answers `503 Upstream
+ * request failed` (or, without a key, `ModelError … not supported for format
+ * oa-compat`), and for everything else `chat/completions` is correct. Both
+ * formats are implemented, so this only returns null if the catalog ever
+ * gains a third.
  */
 export function goDialectFor(model: string): Dialect | null {
-  return goFormatOf(model) === "oa-compat" ? openCodeGoDialect : null;
+  return goFormatOf(model) === "responses" ? openCodeGoResponsesDialect : openCodeGoDialect;
 }
 
 export const goFormat = (model: string): GoFormat => goFormatOf(model);
 
-/** What a topic is told when its model needs a format we do not speak yet. */
+/** Reserved for a format this build has never seen; both known ones resolve. */
 export function goUnsupportedMessage(model: string): string {
   return (
-    `❌ \`${model}\` is served over OpenAI's \`responses\` format — Grok, GPT-5.6 Luna ` +
-    `and Muse are the only Go models that are — and this bot does not speak it yet. ` +
-    `Everything else on your subscription works: GLM, Kimi, Qwen, DeepSeek, MiniMax, ` +
-    `MiMo, LongCat, Hy.`
+    `❌ \`${model}\` is served over a wire format this build does not implement yet. ` +
+    `Every model in the subscription catalog should work — seeing this means OpenCode Go ` +
+    `added a format their docs do not describe.`
   );
 }
 
@@ -144,7 +154,11 @@ export async function ensureGoModels(): Promise<string[]> {
   }
 }
 
-/** The subset a topic can actually run on — everything else is a dead end. */
+/**
+ * The subset a topic can actually run on. Every catalog id resolves to a
+ * dialect today; the filter is what keeps a future third format from turning
+ * into a button that fails on press.
+ */
 export async function runnableGoModels(): Promise<string[]> {
-  return (await ensureGoModels()).filter((id) => goFormatOf(id) === "oa-compat");
+  return (await ensureGoModels()).filter((id) => goDialectFor(id) !== null);
 }

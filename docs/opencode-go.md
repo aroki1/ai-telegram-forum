@@ -54,7 +54,36 @@ one direction and needs care in the other.
   `401 ModelError … not supported for format oa-compat`.
 
 So the real partition is one rule, not three: **everything is `oa-compat`
-except `^(grok|gpt|muse)-`**, and only `responses` is left to build.
+except `^(grok|gpt|muse)-`**, and only `responses` was left to build — which
+it now is.
+
+### The `responses` dialect, verified
+
+Grok, GPT‑5.6 Luna and Muse answer only here. It is the one dialect whose state
+cannot be rebuilt from the normalized transcript, so `ChatMessage.wire` earns
+its place:
+
+- **Tools are flat**, `{type:"function", name, description, parameters}`,
+  unlike `chat/completions` where they nest under `function`.
+- **Function calls are keyed by `call_id`**, and a tool result is a
+  first-class `{type:"function_call_output", call_id, output}` item rather
+  than a `role: "tool"` message.
+- **`store: false` returns `reasoning` items encrypted**, and they must be
+  replayed *before* the items they produced or the model loses its chain. The
+  dialect stores them on the assistant message's `wire` and re-emits them in
+  order; the sequence it builds is `reasoning → message → function_call →
+  function_call_output`.
+- The system prompt becomes top-level `instructions`, not a message.
+- A failure can arrive inside a **200 body** as `error`, so `readResponse` may
+  throw and the loop now turns that into an ordinary turn failure.
+
+| Probe | Result |
+|---|---|
+| `input` + `tools` on `grok-4.7` | **200**, `output: [reasoning, function_call]`, `call_id` present |
+| reasoning + `function_call` + `function_call_output` echoed back | **200**, model answers from the tool output |
+| `instructions` (the system prompt) | **200** |
+| `reasoning: {effort}` | **200** — an out-of-range value is accepted silently, so `/effort` cannot break a turn |
+| `usage` | `input_tokens` / `output_tokens` / `output_tokens_details.reasoning_tokens`, again **no `cost`** |
 
 Error envelopes are mixed rather than uniformly Anthropic: `401` answers with
 `{"type":"error","error":{…}}` and `503` with OpenAI's `{"error":{…}}`. The
@@ -329,8 +358,9 @@ the provider was a single family rather than two.
 3. ✅ `feat: add the opencode-go provider` — transport, `oa-compat` dialect,
    family rule, catalog-driven picker, presets, `/provider`, and the refusal
    path for models this build cannot serve.
-4. `feat: speak the responses dialect for Grok, GPT-5.6 Luna and Muse` — the
-   round-trip `reasoning` state is the only real unknown left.
+4. ✅ `feat: speak the responses dialect for Grok, GPT-5.6 Luna and Muse` —
+   flat tools, `call_id` tool results, top-level `instructions`, and the
+   encrypted `reasoning` items replayed in order through `ChatMessage.wire`.
 5. `feat: report OpenCode plan limits from /v1/usage`
 6. `feat: /export, hide resume for opencode-go, warn on Muse Spark`
 
@@ -344,15 +374,15 @@ Merged only when all four land and the bot has been exercised live.
   it has already been wrong once, in the direction that would have hidden
   working models. Keep the error-driven correction in mind even though the
   rule now only excludes one family.
-- **`responses` is the only gap left**, and it is the dialect with round-trip
-  state (`reasoning` items) and no equivalent anywhere in the current
-  codebase. Everything else runs today: 5 of 5 provider tests pass, and the
-  live gateway answers `chat/completions` for every non-`responses` family.
-- **Go reports no dollars.** `usage` carries tokens and cached tokens only, so
-  `costUsd` is always `null` and the turn summary shows tokens alone. `/usage`
-  must not synthesise a price.
-- **`/effort` is legal but unverified in spirit.** The gateway accepts
-  `reasoning: {effort}` without complaint; what it *does* with it per model is
-  not something the response reveals.
-- **Key handling.** The key never leaves `.env`; the profile cache stores model
-  ids and dialect only.
+- **Both wire formats are implemented**, so every catalog family resolves to a
+  dialect and the refusal path is now reserved for a format nobody has seen.
+  That path is still worth keeping: the family rule has already been wrong
+  once, in the direction that would have hidden working models.
+- **Go reports no dollars.** `usage` carries tokens and cached tokens only, on
+  both routes, so `costUsd` is always `null` and the turn summary shows tokens
+  alone. `/usage` must not synthesise a price.
+- **The bot has never been run against Telegram.** Everything here is
+  typecheck, unit tests and direct calls to the gateway; the message → topic →
+  agent → reply path has not been exercised once. Do that before calling the
+  integration done.
+- **Key handling.** The key never leaves `.env`.

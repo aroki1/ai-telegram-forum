@@ -19,27 +19,183 @@ test("OpenCode Go model ids accept the opencode-go/ spelling and reject slashes"
   assert.equal(normalizeGoModel(""), null);
 });
 
-test("only the responses families are refused; Qwen and MiniMax ride chat/completions", async () => {
-  const { goFormatOf } = await import("../src/go-model.ts");
-  // Verified against the live gateway: these all answer `chat/completions`
-  // with 200 even though the docs table lists Qwen and MiniMax under
-  // `@ai-sdk/anthropic` — that column describes OpenCode's own client, not
-  // what the endpoint accepts.
-  for (const id of [
-    "qwen3.8-max",
-    "qwen3.7-plus",
-    "minimax-m3",
-    "glm-5.2",
-    "kimi-k3",
-    "deepseek-v4-flash",
-    "mimo-v2.6-flash",
-    "hy3",
-    "longcat-2.0",
-  ]) {
-    assert.equal(goFormatOf(id), "oa-compat", id);
-  }
-  for (const id of ["grok-4.7", "grok-4.6", "gpt-5.6-luna", "muse-spark-1.3-contributor"]) {
-    assert.equal(goFormatOf(id), "responses", id);
+test("the responses families resolve to the responses dialect, not a refusal", async () => {
+  const { goDialectFor } = await import("../src/opencode-go.ts");
+  assert.equal(goDialectFor("kimi-k3")?.format, "oa-compat");
+  assert.equal(goDialectFor("qwen3.8-max")?.format, "oa-compat");
+  // Verified live: these refuse `chat/completions` and answer `responses`.
+  assert.equal(goDialectFor("grok-4.7")?.format, "responses");
+  assert.equal(goDialectFor("gpt-5.6-luna")?.format, "responses");
+  assert.equal(goDialectFor("muse-spark-1.3-contributor")?.format, "responses");
+});
+
+test("the responses dialect orders reasoning before the call it produced", async () => {
+  const { responsesDialect } = await import("../src/dialect-responses.ts");
+  const dialect = responsesDialect({ label: "OpenCode Go", defaultContextWindow: 64_000 });
+
+  const body = dialect.buildRequest(
+    {
+      model: "grok-4.7",
+      messages: [
+        { role: "system", content: "You are terse." },
+        { role: "user", content: "read a.txt" },
+        {
+          role: "assistant",
+          content: "on it",
+          tool_calls: [
+            {
+              id: "call-1",
+              type: "function",
+              function: { name: "Read", arguments: '{"file_path":"a.txt"}' },
+            },
+          ],
+          // With `store: false` this comes back encrypted and must be replayed.
+          wire: { items: [{ type: "reasoning", encrypted_content: "blob" }] },
+        },
+        { role: "tool", tool_call_id: "call-1", content: "hello from a.txt" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: { name: "Read", description: "Read a file.", parameters: { type: "object" } },
+        },
+      ],
+      maxTokens: 100,
+    },
+    null,
+  );
+
+  assert.equal(body.instructions, "You are terse.");
+  assert.equal(body.store, false);
+  assert.equal(body.max_output_tokens, 100);
+  assert.equal("max_tokens" in body, false);
+  assert.equal("models" in body, false);
+
+  const input = body.input as any[];
+  assert.deepEqual(
+    input.map((item) => item.type ?? item.role),
+    ["user", "reasoning", "message", "function_call", "function_call_output"],
+  );
+  assert.equal(input.at(-1).call_id, "call-1");
+  assert.equal(input.at(-1).output, "hello from a.txt");
+
+  // Tools are flat here, unlike chat/completions where they nest under `function`.
+  const tools = body.tools as any[];
+  assert.equal(tools[0].name, "Read");
+  assert.equal("function" in tools[0], false);
+});
+
+test("the responses dialect reads reasoning and calls back into one normalized message", async () => {
+  const { responsesDialect } = await import("../src/dialect-responses.ts");
+  const dialect = responsesDialect({ label: "OpenCode Go", defaultContextWindow: 64_000 });
+  const reasoning = { type: "reasoning", id: "rs_1", encrypted_content: "blob", summary: [] };
+
+  const read = dialect.readResponse({
+    model: "grok-4.7",
+    status: "completed",
+    output: [
+      reasoning,
+      { type: "function_call", call_id: "call-9", name: "Read", arguments: '{"a":1}' },
+    ],
+    usage: { input_tokens: 10, output_tokens: 4 },
+  });
+
+  assert.equal(read.message?.role, "assistant");
+  assert.equal(read.message?.content, null);
+  assert.equal(read.message?.tool_calls?.[0]?.id, "call-9");
+  assert.equal(read.message?.tool_calls?.[0]?.function.name, "Read");
+  assert.deepEqual((read.message?.wire as any).items, [reasoning]);
+  assert.equal(read.resolvedModel, "grok-4.7");
+  assert.equal(read.usage.inTokens, 10);
+  // Go reports tokens and never dollars on this route either.
+  assert.equal(read.usage.costUsd, null);
+
+  // A 200 body can carry the failure, so it has to surface as one.
+  assert.throws(
+    () => dialect.readResponse({ error: { message: "Upstream request failed" } }),
+    /Upstream request failed/,
+  );
+});
+
+test("effort clamps to the levels the responses API knows", async () => {
+  const { responsesDialect } = await import("../src/dialect-responses.ts");
+  const dialect = responsesDialect({ label: "OpenCode Go", defaultContextWindow: 64_000 });
+  const forEffort = (effort: any) =>
+    dialect.buildRequest({ model: "grok-4.7", messages: [], tools: [], effort }, null).reasoning;
+  assert.deepEqual(forEffort("low"), { effort: "low" });
+  assert.deepEqual(forEffort("xhigh"), { effort: "high" });
+  assert.equal(forEffort(null), undefined);
+});
+
+test("a model no provider can resolve fails before any request is made", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { ChatAgentSession } = await import("../src/chat-session.ts");
+  const { openCodeGoDialect } = await import("../src/opencode-go.ts");
+
+  let requests = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    requests++;
+    return new Response("should not run", { status: 200 });
+  }) as typeof fetch;
+
+  const root = await mkdtemp(join(tmpdir(), "go-unsupported-"));
+  let resolveEnded!: (result: any) => void;
+  const ended = new Promise<any>((resolve) => (resolveEnded = resolve));
+  try {
+    const session = new ChatAgentSession(
+      {
+        bot: {} as any,
+        threadId: 9,
+        cwd: process.cwd(),
+        sessionId: null,
+        effort: null,
+        model: "some-future-model",
+        serviceTier: null,
+        chat: { model: "some-future-model" },
+        channel: {
+          server: {} as any,
+          send: async () => ({ content: [{ type: "text", text: "sent" }] }),
+          sent: 0,
+          resetSent: () => {},
+        } as any,
+        hooks: {
+          beginTurn: async () => {},
+          session: () => {},
+          text: () => {},
+          tool: () => {},
+          endTurn: async (result: any) => resolveEnded(result),
+        },
+      },
+      {
+        dialect: openCodeGoDialect,
+        dialectFor: () => null,
+        unsupported: (model) => `❌ ${model} needs a wire format this build lacks`,
+        client: () => ({
+          complete: async () => {
+            requests++;
+            return {};
+          },
+        }),
+        defaultModel: "kimi-k3",
+        historyRoot: root,
+        maxSteps: 4,
+        turnTimeoutMs: 5_000,
+        maxToolOutput: 1_000,
+      },
+    );
+
+    await session.send({ text: "hello", images: [] });
+    const result = await ended;
+    assert.equal(result.ok, false);
+    assert.match(String(result.failure), /needs a wire format this build lacks/);
+    assert.equal(requests, 0);
+    session.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -99,55 +255,4 @@ test("Go grades errors by error.type, so a format refusal never reads as a bad k
     () => badKey.complete({ model: "kimi-k3", messages: [] }),
     /authorization failed.*OPENCODE_GO_API_KEY was rejected/,
   );
-});
-
-test("a responses-family model never reaches the wire and the topic is told why", async () => {
-  const { OpenCodeGoAgentSession } = await import("../src/opencode-go-session.ts");
-  let requests = 0;
-  const { OpenCodeGoClient } = await import("../src/opencode-go.ts");
-  // Any transport call at all would mean the refusal happened too late.
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => {
-    requests++;
-    return new Response("should not run", { status: 200 });
-  }) as typeof fetch;
-  void OpenCodeGoClient;
-
-  let resolveEnded!: (result: any) => void;
-  const ended = new Promise<any>((resolve) => (resolveEnded = resolve));
-  try {
-    const session = new OpenCodeGoAgentSession({
-      bot: {} as any,
-      threadId: 7,
-      cwd: process.cwd(),
-      sessionId: null,
-      effort: null,
-      model: "grok-4.7",
-      serviceTier: null,
-      chat: { model: "grok-4.7" },
-      channel: {
-        server: {} as any,
-        send: async () => ({ content: [{ type: "text", text: "sent" }] }),
-        sent: 0,
-        resetSent: () => {},
-      } as any,
-      hooks: {
-        beginTurn: async () => {},
-        session: () => {},
-        text: () => {},
-        tool: () => {},
-        endTurn: async (result: any) => resolveEnded(result),
-      },
-    });
-
-    await session.send({ text: "hello", images: [] });
-    const result = await ended;
-    assert.equal(result.ok, false);
-    assert.match(String(result.failure), /responses/);
-    assert.match(String(result.failure), /Grok/);
-    assert.equal(requests, 0);
-    session.close();
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
 });
