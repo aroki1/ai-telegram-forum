@@ -18,6 +18,10 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/claude.ts` | SDK options: model, effort, permission policy, usage accounting |
 | `src/codex.ts` | Codex SDK options, thread/input/event adaptation |
 | `src/agent-session.ts` | provider-neutral session lifecycle |
+| `src/chat-message.ts` | the normalized transcript message and tool spec |
+| `src/dialect.ts` | the wire-format seam: `Dialect`, `TurnSettings`, `ChatRequestError` |
+| `src/agent-loop.ts` | dialect-free turn runner: compaction, tools, history, step limit |
+| `src/openrouter.ts` | OpenRouter transport, model catalog, and its `oa-compat` dialect |
 | `src/codex-app-server.ts` | one-shot Codex app-server requests |
 | `src/codex-app-server-client.ts` | persistent topic app-server connection; main + `/btw` turns |
 | `src/codex-limits.ts` | Codex plan limits through the local app-server |

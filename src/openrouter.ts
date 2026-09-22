@@ -1,23 +1,23 @@
 import { cfg } from "./config.ts";
-import type { OpenRouterProviderPreferences, OpenRouterSettings } from "./openrouter-config.ts";
+import { ChatRequestError } from "./dialect.ts";
+import type {
+  ChatBody,
+  Dialect,
+  ModelMetadata,
+  ReadResult,
+  StepRequest,
+  TurnSettings,
+} from "./dialect.ts";
+import type { ChatContentPart, ChatMessage, ChatToolCall, ToolSpec } from "./chat-message.ts";
+import type { OpenRouterProviderPreferences } from "./openrouter-config.ts";
 
-export type OpenRouterContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
-
-export interface OpenRouterToolCall {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-}
-
-export interface OpenRouterMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content?: string | OpenRouterContentPart[] | null;
-  tool_calls?: OpenRouterToolCall[];
-  tool_call_id?: string;
-  name?: string;
-}
+// The wire names are kept as aliases rather than definitions: OpenRouter
+// speaks `chat/completions` natively, so its messages *are* the normalized
+// transcript, and history written before the split keeps parsing.
+export type OpenRouterContentPart = ChatContentPart;
+export type OpenRouterToolCall = ChatToolCall;
+export type OpenRouterMessage = ChatMessage;
+export type OpenRouterTool = ToolSpec;
 
 export interface OpenRouterChatRequest {
   model?: string;
@@ -29,15 +29,6 @@ export interface OpenRouterChatRequest {
   max_completion_tokens?: number;
   reasoning?: unknown;
   provider?: OpenRouterProviderPreferences;
-}
-
-export interface OpenRouterTool {
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
 }
 
 export interface OpenRouterResponse {
@@ -57,13 +48,13 @@ export interface OpenRouterResponse {
   };
 }
 
-export class OpenRouterError extends Error {
+export class OpenRouterError extends ChatRequestError {
   constructor(
     message: string,
-    readonly status: number | null = null,
-    readonly code: string | null = null,
+    status: number | null = null,
+    code: string | null = null,
   ) {
-    super(message);
+    super(message, status, code);
     this.name = "OpenRouterError";
   }
 }
@@ -135,7 +126,7 @@ export class OpenRouterClient {
     private readonly request: typeof fetch = fetch,
   ) {}
 
-  async complete(body: OpenRouterChatRequest, signal?: AbortSignal): Promise<OpenRouterResponse> {
+  async complete(body: ChatBody, signal?: AbortSignal): Promise<unknown> {
     if (!this.apiKey) {
       throw new OpenRouterError("OpenRouter is unavailable: OPENROUTER_API_KEY is empty");
     }
@@ -178,28 +169,22 @@ export class OpenRouterClient {
   }
 }
 
-export interface OpenRouterModelMetadata {
-  id: string;
-  name?: string;
-  context_length?: number;
-  architecture?: { input_modalities?: string[]; output_modalities?: string[] };
-  supported_parameters?: string[];
-}
+export type OpenRouterModelMetadata = ModelMetadata;
 
-let catalog: { expiresAt: number; models: Map<string, OpenRouterModelMetadata> } | null = null;
-let catalogRequest: Promise<Map<string, OpenRouterModelMetadata> | null> | null = null;
+let catalog: { expiresAt: number; models: Map<string, ModelMetadata> } | null = null;
+let catalogRequest: Promise<Map<string, ModelMetadata> | null> | null = null;
 
 /** The public catalog is advisory; a failure never prevents a chat request. */
 export async function openRouterModelMetadata(
   model: string,
   apiKey = cfg.openrouterApiKey,
-): Promise<OpenRouterModelMetadata | null> {
+): Promise<ModelMetadata | null> {
   if (!apiKey) return null;
   const models = await openRouterCatalog(apiKey);
   return models?.get(model) ?? null;
 }
 
-async function openRouterCatalog(apiKey: string): Promise<Map<string, OpenRouterModelMetadata> | null> {
+async function openRouterCatalog(apiKey: string): Promise<Map<string, ModelMetadata> | null> {
   if (catalog && catalog.expiresAt > Date.now()) return catalog.models;
   if (catalogRequest) return catalogRequest;
   catalogRequest = (async () => {
@@ -209,7 +194,7 @@ async function openRouterCatalog(apiKey: string): Promise<Map<string, OpenRouter
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) throw await errorFromResponse(response);
-      const body = (await response.json()) as { data?: OpenRouterModelMetadata[] };
+      const body = (await response.json()) as { data?: ModelMetadata[] };
       const models = new Map((body.data ?? []).filter((item) => item?.id).map((item) => [item.id, item]));
       catalog = { expiresAt: Date.now() + 15 * 60_000, models };
       return models;
@@ -224,9 +209,16 @@ async function openRouterCatalog(apiKey: string): Promise<Map<string, OpenRouter
   return catalogRequest;
 }
 
+/** The request knobs a preset may set that the model is free not to support. */
+export interface CapabilitySettings {
+  temperature?: number;
+  maxTokens?: number;
+  reasoning?: unknown;
+}
+
 export function openRouterCapabilityError(
-  metadata: OpenRouterModelMetadata | null,
-  settings: OpenRouterSettings,
+  metadata: ModelMetadata | null,
+  settings: CapabilitySettings,
   hasImages: boolean,
 ): string | null {
   // The free router deliberately chooses a model based on the request's
@@ -278,3 +270,62 @@ export function openRouterUsage(response: OpenRouterResponse): {
     costUsd: cost !== null && Number.isFinite(cost) ? cost : null,
   };
 }
+
+function tokenLimitKey(metadata: ModelMetadata | null, maxTokens: number): ChatBody {
+  const parameters = metadata?.supported_parameters;
+  return parameters?.includes("max_completion_tokens") && !parameters.includes("max_tokens")
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens };
+}
+
+/**
+ * Fold `/effort` into a preset's reasoning blob, the way OpenRouter reads it:
+ * a preset object gains `effort`, anything else is replaced by it.
+ */
+function reasoningBody(
+  reasoning: unknown,
+  effort: TurnSettings["effort"],
+): unknown {
+  if (!effort) return reasoning;
+  if (reasoning && typeof reasoning === "object" && !Array.isArray(reasoning)) {
+    return { ...(reasoning as Record<string, unknown>), effort };
+  }
+  return { effort };
+}
+
+/** OpenRouter's wire format — OpenAI `chat/completions` plus its own extras. */
+export const openRouterDialect: Dialect = {
+  format: "oa-compat",
+  label: "OpenRouter",
+  defaultContextWindow: cfg.openrouterContextWindow,
+
+  metadata: (model) => openRouterModelMetadata(model),
+
+  // Deliberately the *preset's* reasoning, not the effort-mixed body: a preset
+  // that names an unsupported parameter should say so, while `/effort` on a
+  // model without reasoning support is left for the API to answer as before.
+  capabilityError: (metadata, settings, hasImages) =>
+    openRouterCapabilityError(metadata, settings, hasImages),
+
+  buildRequest: (step: StepRequest, metadata: ModelMetadata | null): ChatBody => {
+    const reasoning = reasoningBody(step.reasoning, step.effort);
+    return {
+      ...(step.models?.length ? { models: step.models } : { model: step.model }),
+      messages: step.messages,
+      tools: step.tools,
+      ...(step.temperature === undefined ? {} : { temperature: step.temperature }),
+      ...(step.maxTokens === undefined ? {} : tokenLimitKey(metadata, step.maxTokens)),
+      ...(reasoning === undefined ? {} : { reasoning }),
+      ...(step.provider === undefined ? {} : { provider: { ...step.provider } }),
+    };
+  },
+
+  readResponse: (body: unknown): ReadResult => {
+    const response = body as OpenRouterResponse;
+    return {
+      message: response.choices?.[0]?.message ?? null,
+      resolvedModel: response.model ?? null,
+      usage: openRouterUsage(response),
+    };
+  },
+};
