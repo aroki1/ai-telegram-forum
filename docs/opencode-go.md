@@ -283,25 +283,25 @@ Show the numeric picker when the profile declares a budget-shaped
 | `/effort` | numeric budget (above) for `messages` dialect, ladder otherwise |
 | `/usage` | fetched plan windows, rendered by the existing `planLimitsText` |
 | `/btw`, `/stop`, `/progress`, `/toolcalls`, `/id` | unchanged |
-| `/resume` | **hidden** — see below |
+| `/resume` | visible — shows the OpenCode Go history path; the bot resumes automatically |
 | `/telegramify` / `/codexify` | **hidden for Go** — see below |
 | `/export` | **new** — dump the topic's normalized transcript as Markdown |
 
-### Why `/resume` and `/telegramify` are hidden
+### `/resume`, `/telegramify`, and `/export`
 
-Both depend on a **native CLI transcript on disk**: Claude Code keeps
+`/telegramify` depends on a **native CLI transcript on disk**: Claude Code keeps
 `~/.claude/projects/**.jsonl`, Codex keeps `~/.codex/sessions/**`. `telegramify`
 writes a topic row pointing at a session id that already exists ("adoption
-binds, it doesn't copy", `AGENTS.md`), and `/resume` prints the terminal
-command that reopens that same session.
+binds, it doesn't copy", `AGENTS.md`). OpenCode Go has no native CLI to adopt.
 
 OpenCode Go has no CLI and no provider-side transcript. The bot's own JSONL
-under `data/` is the entire record, so there is nothing to bind to and nothing
-to `--resume`. Printing an `opencode --model opencode-go/…` command would start
-a conversation sharing nothing with the topic — worse than not offering it.
+under `data/` is the entire record. `/resume` remains visible and shows that
+history path, as it does for OpenRouter; the topic itself resumes automatically
+inside the bot. It does not print an `opencode --model opencode-go/…` command,
+which would start a separate conversation sharing nothing with the topic.
 
-`/export` is the replacement: the repo's rule is that a transcript is the
-user's work and outlives its topic, and Go topics need some portability.
+`/export` downloads the normalized transcript as Markdown for portability; the
+repo's rule is that a transcript is the user's work and outlives its topic.
 
 ---
 
@@ -346,7 +346,7 @@ today.
 | `src/model.ts` | `defaultModel` / `modelGroup` / `parseModel` branches |
 | `src/launch-preset.ts` | Go presets in the launcher group |
 | `src/limits.ts` | accept an HTTP-fetched `PlanLimits` alongside the CLI query |
-| `src/index.ts` | `/export`, hide `/resume` for Go |
+| `src/index.ts` | `/export`, OpenCode Go history path in `/resume` |
 | `src/db.ts` | model → profile cache, `/export` needs nothing new |
 | `.env.example`, `README.md`, `AGENTS.md`, `package.json` | docs |
 
@@ -373,7 +373,7 @@ the provider was a single family rather than two.
 5. ✅ `feat: report OpenCode plan limits from /v1/usage` — one HTTP call mapped
    onto the meter `planLimitsText` already renders, so no pricing table was
    ever needed.
-6. `feat: /export, hide resume for opencode-go, warn on Muse Spark`
+6. `feat: /export, retain resume for opencode-go, warn on Muse Spark`
 
 Merged only when all four land and the bot has been exercised live.
 

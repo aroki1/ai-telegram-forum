@@ -29,6 +29,13 @@ test("the responses families resolve to the responses dialect, not a refusal", a
   assert.equal(goDialectFor("muse-spark-1.3-contributor")?.format, "responses");
 });
 
+test("Muse Spark is visibly marked in the OpenCode Go model picker", async () => {
+  const { goModelLabel } = await import("../src/opencode-go.ts");
+  assert.equal(goModelLabel("muse-spark-1.3-contributor"), "⚠️ muse-spark-1.3-contributor");
+  assert.equal(goModelLabel("Muse-Spark-preview"), "⚠️ Muse-Spark-preview");
+  assert.equal(goModelLabel("grok-4.7"), "grok-4.7");
+});
+
 test("the responses dialect orders reasoning before the call it produced", async () => {
   const { responsesDialect } = await import("../src/dialect-responses.ts");
   const dialect = responsesDialect({ label: "OpenCode Go", defaultContextWindow: 64_000 });

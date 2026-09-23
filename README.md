@@ -123,7 +123,8 @@ shows tool activity while it works.
   the main task or adding the exchange to its history.
 - `/usage` — show usage and available plan limits. In the launcher, show totals
   across topics. Codex allowance estimates in turn summaries are approximate.
-- `/resume` — get the command to continue a Claude or Codex session in a terminal.
+- `/resume` — get a Claude or Codex terminal command, or a chat provider's local history path.
+- `/export` — download an OpenRouter or OpenCode Go topic's transcript as Markdown.
 - `/id` — show the session ID.
 - `/progress off|brief|detailed` — set progress messages. In the launcher,
   this is the persistent default for new sessions; inside a topic, it changes

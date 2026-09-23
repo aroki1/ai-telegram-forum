@@ -143,31 +143,28 @@ export interface OpenRouterModelChoice {
   settings: OpenRouterSettings;
 }
 
-function labelForModel(id: string, defaultModel: string): string {
-  return id === defaultModel ? `${id} (default)` : id;
-}
-
 /** One short callback per option; the full model id stays server-side. */
 export function openRouterModelPicker(
   initial: OpenRouterSettings | null | undefined,
   defaultModel: string,
   presets: OpenRouterPresetConfig[],
-  opts: { key?: string; models?: string[] } = {},
+  opts: { key?: string; models?: string[]; label?: (id: string) => string } = {},
 ): { group: PickGroup; selected(value: PickValue): OpenRouterModelChoice } {
+  const label = opts.label ?? ((id: string) => id);
   const options: PickOption[] = [
     ...presets.map((preset, index) => ({ value: `preset:${index}`, label: `🎛️ ${preset.name}` })),
-    { value: `model:${defaultModel}`, label: labelForModel(defaultModel, defaultModel) },
+    { value: `model:${defaultModel}`, label: `${label(defaultModel)} (default)` },
   ];
   // Extra ids from a live catalog. The default is already listed, so this only
   // ever widens the buttons rather than duplicating one.
   for (const id of opts.models ?? []) {
     if (!options.some((option) => option.value === `model:${id}`)) {
-      options.push({ value: `model:${id}`, label: id });
+      options.push({ value: `model:${id}`, label: label(id) });
     }
   }
   const currentModel = initial?.model ?? defaultModel;
   if (!options.some((option) => option.value === `model:${currentModel}`)) {
-    options.push({ value: `model:${currentModel}`, label: currentModel });
+    options.push({ value: `model:${currentModel}`, label: label(currentModel) });
   }
   const presetIndex = initial?.preset
     ? presets.findIndex((preset) => preset.name === initial.preset)

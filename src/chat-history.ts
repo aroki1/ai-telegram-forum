@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ChatMessage } from "./chat-message.ts";
 import { cfg } from "./config.ts";
+import type { Provider } from "./provider.ts";
 
 /** Append-only agent transcript. The topic database keeps only its id. */
 export class JsonlHistory {
@@ -52,3 +53,10 @@ export const openRouterHistory = (sessionId: string): JsonlHistory =>
 
 export const goHistory = (sessionId: string): JsonlHistory =>
   new JsonlHistory(sessionId, cfg.goHistoryPath);
+
+/** A chat provider's transcript root, by provider. */
+export const historyRootFor = (provider: Provider): string =>
+  provider === "opencode-go" ? cfg.goHistoryPath : cfg.openrouterHistoryPath;
+
+export const historyFor = (provider: Provider, sessionId: string): JsonlHistory =>
+  new JsonlHistory(sessionId, historyRootFor(provider));

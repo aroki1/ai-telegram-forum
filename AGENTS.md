@@ -26,6 +26,7 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/dialect-responses.ts` | the OpenAI `responses` dialect; owns the opaque reasoning round trip |
 | `src/chat-session.ts` | one chat session driving any `ChatProvider`; resolves its dialect per model |
 | `src/chat-history.ts` | append-only JSONL transcript, rooted per provider |
+| `src/export.ts` | normalized chat transcript → downloadable Markdown |
 | `src/openrouter.ts` | OpenRouter transport, model catalog, and its `oa-compat` dialect |
 | `src/opencode-go.ts` | OpenCode Go transport, catalog, dialect resolution |
 | `src/go-model.ts` | Go model ids and which wire format a family is served over |
@@ -61,6 +62,10 @@ npm run install-command          # install /telegramify for Claude and $telegram
 npm run telegramify -- --dry-run # adopt the current terminal session into a topic
 npm run codexify -- --dry-run    # backwards-compatible Codex alias
 ```
+
+`/export` downloads OpenRouter and OpenCode Go topic history as Markdown.
+`/resume` shows the local history path for chat providers; it remains available
+for OpenCode Go even though the provider has no native CLI resume command.
 
 ## Rules
 

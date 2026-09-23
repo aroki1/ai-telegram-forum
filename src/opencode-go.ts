@@ -113,6 +113,14 @@ export function goDialectFor(model: string): Dialect | null {
 
 export const goFormat = (model: string): GoFormat => goFormatOf(model);
 
+/**
+ * Muse Spark's Contributor tier trains on your prompts and completions — the
+ * marker keeps that a deliberate choice rather than an incidental one.
+ */
+export function goModelLabel(model: string): string {
+  return /^muse-spark/i.test(model) ? `⚠️ ${model}` : model;
+}
+
 /** Reserved for a format this build has never seen; both known ones resolve. */
 export function goUnsupportedMessage(model: string): string {
   return (

@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, InputFile } from "grammy";
 import { progressLevels, toolcallModes, type Progress, type Toolcalls } from "./activity.ts";
 import { setActivity } from "./db.ts";
 import { cfg } from "./config.ts";
@@ -53,6 +53,8 @@ import { fmtTokens } from "./fmt.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { fetchPlanLimits, planLimitsText } from "./limits.ts";
 import { fetchGoLimits } from "./go-limits.ts";
+import { historyFor } from "./chat-history.ts";
+import { transcriptMarkdown, writeTranscript } from "./export.ts";
 import { MediaGroupCollector } from "./media-group.ts";
 import { registerPermissionButtons } from "./permission.ts";
 import { liveSession, sessionFor, type AgentInput } from "./session.ts";
@@ -65,7 +67,7 @@ import {
   usesChatSettings,
   type Provider,
 } from "./provider.ts";
-import { runnableGoModels } from "./opencode-go.ts";
+import { runnableGoModels, goModelLabel } from "./opencode-go.ts";
 import { startSweep } from "./sweep.ts";
 import {
   createTopic,
@@ -181,7 +183,11 @@ function chatModelPicker(
   models: string[] = [],
 ) {
   return provider === "opencode-go"
-    ? openRouterModelPicker(settings ?? null, cfg.goModel, cfg.goPresets, { key: "g", models })
+    ? openRouterModelPicker(settings ?? null, cfg.goModel, cfg.goPresets, {
+        key: "g",
+        models,
+        label: goModelLabel,
+      })
     : openRouterModelPicker(settings ?? null, cfg.openrouterModel, cfg.openrouterPresets, {
         key: "o",
         models,
@@ -649,6 +655,45 @@ async function handleCommand(ctx: any, thread: number | undefined): Promise<bool
     return true;
   }
 
+  if (cmd === "/export") {
+    const t = await sessionTopic(ctx, thread);
+    if (t) {
+      if (!usesChatSettings(t.provider)) {
+        await replySilently(
+          ctx,
+          "⚠️ `/export` covers OpenRouter and OpenCode Go topics. Claude and Codex already keep a transcript their own CLI can reopen — try `/resume`.",
+          { message_thread_id: thread, parse_mode: "Markdown" },
+        );
+        return true;
+      }
+      if (!t.session_id) {
+        await replySilently(ctx, "⚠️ nothing has been sent in this topic yet.", {
+          message_thread_id: thread,
+        });
+        return true;
+      }
+      try {
+        const markdown = transcriptMarkdown(historyFor(t.provider, t.session_id).messages(), {
+          title: t.title,
+          provider: providerLabel(t.provider),
+          model: modelLabel(t.model, defaultModel(t.provider), t.provider),
+          sessionId: t.session_id,
+          exportedAt: new Date(),
+        });
+        const path = writeTranscript(markdown, t.title, t.session_id);
+        await ctx.api.sendDocument(cfg.chatId, new InputFile(path), {
+          message_thread_id: thread,
+        });
+      } catch (err) {
+        console.warn(`[export:${thread}] failed:`, err);
+        await replySilently(ctx, `⚠️ couldn't export this topic: ${String(err)}`, {
+          message_thread_id: thread,
+        });
+      }
+    }
+    return true;
+  }
+
   if (cmd === "/stop") {
     const s = thread !== undefined && !isLauncher(thread) ? liveSession(thread) : undefined;
     let stopped = false;
@@ -1080,6 +1125,7 @@ async function main() {
     { command: "model", description: "Model: /model sonnet, or /model for buttons" },
     { command: "stop", description: "Interrupt the turn running in this topic" },
     { command: "resume", description: "Shell command to continue this session in a terminal" },
+    { command: "export", description: "Download this topic's transcript as Markdown" },
     { command: "id", description: "Agent session id of this topic" },
   ]);
 
