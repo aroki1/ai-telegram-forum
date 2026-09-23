@@ -14,6 +14,7 @@ const GREP_TOOL = "Grep";
 const EDIT_TOOL = "Edit";
 const WRITE_TOOL = "Write";
 const BASH_TOOL = "Bash";
+export const TELEGRAM_PUBLISH_TOOL = "PublishTelegramChannel";
 
 const stringProperty = (description: string) => ({ type: "string", description });
 
@@ -131,6 +132,27 @@ export const OPENROUTER_TOOLS: OpenRouterTool[] = [
       },
     },
   },
+  ...(cfg.telegramPublisherEnabled
+    ? [
+        {
+          type: "function" as const,
+          function: {
+            name: TELEGRAM_PUBLISH_TOOL,
+            description:
+              `Publish one post to the configured Telegram channel (id ${cfg.telegramPublishChannelId}). ` +
+              "The owner must approve every post in Telegram before it is sent.",
+            parameters: {
+              type: "object",
+              properties: {
+                text: stringProperty("The complete post text, up to 4096 characters."),
+              },
+              required: ["text"],
+              additionalProperties: false,
+            },
+          },
+        },
+      ]
+    : []),
 ];
 
 export interface OpenRouterToolContext {
@@ -299,7 +321,11 @@ export async function executeOpenRouterTool(
     return "Telegram delivery is disabled for a side question; put the answer in your final response.";
   }
 
-  const allowed = await authorizeTool(ctx.bot, ctx.threadId, name, args);
+  const publishing = name === TELEGRAM_PUBLISH_TOOL;
+  const allowed = await authorizeTool(ctx.bot, ctx.threadId, name, args, {
+    alwaysPrompt: publishing,
+    warning: publishing ? `Publish to your configured Telegram channel?` : undefined,
+  });
   if (!allowed) return "Tool call denied by the user over Telegram.";
 
   switch (name) {
@@ -320,6 +346,11 @@ export async function executeOpenRouterTool(
       return tgSendDelivered(result)
         ? result.content[0]?.text ?? "sent"
         : result.content[0]?.text ?? "Telegram delivery failed";
+    }
+    case TELEGRAM_PUBLISH_TOOL: {
+      const { publishToTelegramChannel } = await import("./telegram-publisher.ts");
+      const id = await publishToTelegramChannel(String(args.text ?? ""));
+      return `published to your Telegram channel (message id: ${id})`;
     }
     default:
       return `Unknown tool: ${name}`;

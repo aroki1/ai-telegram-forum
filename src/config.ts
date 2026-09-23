@@ -94,6 +94,20 @@ if (provider === "opencode-go" && !goEnabled) {
   throw new Error('PROVIDER="opencode-go" requires a non-empty OPENCODE_GO_API_KEY');
 }
 
+const telegramUserApiIdRaw = process.env.TELEGRAM_USER_API_ID?.trim() ?? "";
+const telegramUserApiId = telegramUserApiIdRaw ? Number(telegramUserApiIdRaw) : null;
+if (telegramUserApiIdRaw && (!Number.isSafeInteger(telegramUserApiId) || telegramUserApiId! <= 0)) {
+  throw new Error("TELEGRAM_USER_API_ID must be a positive integer");
+}
+const telegramUserApiHash = process.env.TELEGRAM_USER_API_HASH?.trim() ?? "";
+const telegramPublishChannelId = process.env.TELEGRAM_PUBLISH_CHANNEL_ID?.trim() ?? "";
+if (telegramPublishChannelId && !/^\d+$/.test(telegramPublishChannelId)) {
+  throw new Error("TELEGRAM_PUBLISH_CHANNEL_ID must be a numeric channel id");
+}
+const telegramPublisherEnabled = Boolean(
+  telegramUserApiId && telegramUserApiHash && telegramPublishChannelId,
+);
+
 export const cfg = {
   token: req("BOT_TOKEN"),
   chatId: reqNum("FORUM_CHAT_ID"),
@@ -127,6 +141,12 @@ export const cfg = {
   goTurnTimeoutMs,
   goMaxToolOutput,
   goContextWindow,
+  telegramUserApiId,
+  telegramUserApiHash,
+  telegramPublishChannelId,
+  telegramPublisherEnabled,
+  telegramUserSessionPath:
+    process.env.TELEGRAM_USER_SESSION_PATH ?? "./data/telegram-user-session.txt",
   codexPresets,
   codexDefaultPreset: parseDefaultCodexPreset(process.env.CODEX_DEFAULT_PRESET, codexPresets),
   // "auto": auto-approve the ALLOWED_TOOLS allowlist, deny everything else,

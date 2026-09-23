@@ -39,6 +39,8 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/codex-tg-server.ts` | topic-bound stdio MCP server for Codex |
 | `src/provider.ts` | provider selection and labels |
 | `src/tg-tools.ts` | shared send implementation + Claude's in-process MCP server |
+| `src/telegram-publisher.ts` | local Telegram user session and approved posts to one selected channel |
+| `src/telegram-publisher-login.ts` | interactive local account login and private-channel selection |
 | `src/status.ts` | the live status line / turn summary message |
 | `src/limits.ts` | plan rate limits (5-hour / weekly) behind `/usage` |
 | `src/render.ts` | markdown → topic messages, with format fallback |

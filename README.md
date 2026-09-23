@@ -135,6 +135,27 @@ shows tool activity while it works.
   only that topic.
 - `/toolcalls off|only_file_edits|full` — control separate tool-call messages.
 
+### Publish to your channel as yourself
+
+OpenRouter and OpenCode Go can publish a post to one configured private or public channel
+using your Telegram account. Start the setup wizard from Git Bash:
+
+```bash
+bash scripts/setup-telegram-publisher.sh
+```
+
+It guides you through creating Telegram API credentials and signing in locally.
+Then choose the channel from the list of channels where your account can post;
+private channels are supported. The selected channel ID is saved in `.env`.
+Restart the bot after setup. The login session is stored under `data/` and must stay private. Each proposed
+post shows its text in the current topic and requires your approval, even when
+`PERMISSION=bypass`. A channel post automatically appears in its linked
+discussion group.
+
+To show your personal profile on the post, enable channel signatures and
+author profiles in the channel settings. Otherwise Telegram displays the
+channel as the author.
+
 Model and effort changes apply from the next turn and persist in that topic.
 In the launcher, they apply only to the next session. Use `/model default` or
 `/effort default` to reset them. Progress defaults to `off`; its launcher

@@ -14,13 +14,17 @@ import type { ChatClient, Dialect, TurnSettings } from "./dialect.ts";
 import type { ChatMessage } from "./chat-message.ts";
 import { JsonlHistory } from "./chat-history.ts";
 import type { ChatSettings } from "./openrouter-config.ts";
-import { OPENROUTER_TOOLS } from "./openrouter-tools.ts";
+import { OPENROUTER_TOOLS, TELEGRAM_PUBLISH_TOOL } from "./openrouter-tools.ts";
 import { TG_SEND_TOOL, type TgChannel } from "./tg-tools.ts";
 
 const SYSTEM_PROMPT = `${
   `You are an agent working in a local repository and talking to a person over Telegram.\n\n` +
   `Use Read, Glob, Grep, Edit, Write, and Bash to inspect and change the working tree. ` +
   `Use ${TG_SEND_TOOL} for every complete message intended for the person. ` +
+  (cfg.telegramPublisherEnabled
+    ? `Use ${TELEGRAM_PUBLISH_TOOL} only when explicitly asked to publish to the configured Telegram channel. ` +
+      `Every post requires the owner's approval; do not publish a draft or an ordinary answer. `
+    : "") +
   `Your ordinary response text is only a fallback and is not delivered when a Telegram message was sent. ` +
   `Never send partial thoughts; batch related information into one finished message. ` +
   `Keep tool output and shell commands focused, and do not use tables in Telegram.\n\n`

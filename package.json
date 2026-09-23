@@ -36,6 +36,8 @@
     "telegramify": "tsx src/telegramify.ts",
     "codexify": "npm run telegramify -- --provider codex",
     "install-command": "tsx src/install-command.ts",
+    "telegram-publisher-login": "tsx src/telegram-publisher-login.ts",
+    "setup-telegram-publisher": "bash scripts/setup-telegram-publisher.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -44,6 +46,7 @@
     "dotenv": "^16.4.5",
     "grammy": "^1.30.0",
     "telegramify-markdown": "^1.3.3",
+    "teleproto": "^1.229.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

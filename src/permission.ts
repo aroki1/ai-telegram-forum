@@ -67,6 +67,7 @@ export function askPermission(
   tool: string,
   input: Record<string, unknown>,
   warning?: string,
+  allowAlways = true,
 ): Promise<Decision> {
   return new Promise<Decision>((resolve) => {
     const id = randomBytes(4).toString("hex");
@@ -75,9 +76,8 @@ export function askPermission(
     const text = `${head}<b>${esc(tool)}</b>\n<pre>${esc(describe(tool, input))}</pre>`;
     const keyboard = new InlineKeyboard()
       .text("✅ Allow", `p:a:${id}`)
-      .text("❌ Deny", `p:d:${id}`)
-      .row()
-      .text(`✅ Always allow ${tool} here`, `p:s:${id}`);
+      .text("❌ Deny", `p:d:${id}`);
+    if (allowAlways) keyboard.row().text(`✅ Always allow ${tool} here`, `p:s:${id}`);
 
     void bot.api
       .sendMessage(cfg.chatId, text, {
@@ -123,11 +123,16 @@ export async function authorizeTool(
   threadId: number,
   name: string,
   input: Record<string, unknown>,
+  options: { alwaysPrompt?: boolean; warning?: string } = {},
 ): Promise<boolean> {
-  if (cfg.permission === "bypass") return true;
+  if (!options.alwaysPrompt && cfg.permission === "bypass") return true;
   const command = typeof input.command === "string" ? input.command : "";
   const dangerous = name === "Bash" && dangerousBash.some((re) => re.test(command));
-  if (!dangerous && (openRouterAutoAllowed.includes(name) || isBlanketAllowed(threadId, name))) {
+  if (
+    !options.alwaysPrompt &&
+    !dangerous &&
+    (openRouterAutoAllowed.includes(name) || isBlanketAllowed(threadId, name))
+  ) {
     return true;
   }
   const decision = await askPermission(
@@ -135,7 +140,8 @@ export async function authorizeTool(
     threadId,
     name,
     input,
-    dangerous ? "flagged as destructive" : undefined,
+    options.warning ?? (dangerous ? "flagged as destructive" : undefined),
+    !options.alwaysPrompt,
   );
   return decision === "allow";
 }
