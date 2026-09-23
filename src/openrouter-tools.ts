@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { Bot } from "grammy";
 import { cfg } from "./config.ts";
 import { authorizeTool } from "./permission.ts";
@@ -244,10 +245,23 @@ function commandText(result: { code: number; stdout: string; stderr: string }): 
   return bounded(`exit code: ${result.code}\n${output}`.trim());
 }
 
+function bashInvocation(command: string): { file: string; args: string[] } {
+  if (process.platform !== "win32") return { file: "/bin/sh", args: ["-c", command] };
+
+  const candidates = [
+    process.env.BASH_PATH,
+    process.env.ProgramFiles && join(process.env.ProgramFiles, "Git", "bin", "bash.exe"),
+    process.env["ProgramFiles(x86)"] && join(process.env["ProgramFiles(x86)"], "Git", "bin", "bash.exe"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const bash = candidates.find(existsSync) ?? "bash.exe";
+  return { file: bash, args: ["-c", command] };
+}
+
 async function bashTool(args: Record<string, unknown>, ctx: OpenRouterToolContext): Promise<string> {
   const command = typeof args.command === "string" ? args.command : "";
   if (!command) throw new Error("command is required");
-  const result = await execFileText("/bin/sh", ["-c", command], ctx.cwd, ctx.signal);
+  const { file, args: commandArgs } = bashInvocation(command);
+  const result = await execFileText(file, commandArgs, ctx.cwd, ctx.signal);
   return commandText(result);
 }
 

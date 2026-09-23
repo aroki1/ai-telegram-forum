@@ -29,6 +29,10 @@ You need Node.js 22 or later and credentials for at least one provider:
 - **OpenCode Go:** subscribe and copy the key from
   [opencode.ai/auth](https://opencode.ai/auth); no CLI login is needed.
 
+On Windows, install [Git for Windows](https://git-scm.com/download/win) so the
+agent's Bash tool can use Git Bash. If Git Bash is in a nonstandard location,
+set `BASH_PATH` in `.env` to its `bash.exe` path.
+
 Run the bot as the same OS user that owns your CLI credentials and projects.
 
 ```bash
