@@ -2,19 +2,22 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Api, TelegramClient, sessions } from "teleproto";
-import { cfg } from "./config.ts";
+import { telegramPublisherCfg } from "./telegram-publisher-config.ts";
 
 const { StringSession } = sessions;
 
-const SESSION_FILE = () => resolve(cfg.telegramUserSessionPath);
+const SESSION_FILE = () => resolve(telegramPublisherCfg.telegramUserSessionPath);
 
 function requireApiCredentials(): { apiId: number; apiHash: string } {
-  if (!cfg.telegramUserApiId || !cfg.telegramUserApiHash) {
+  if (!telegramPublisherCfg.telegramUserApiId || !telegramPublisherCfg.telegramUserApiHash) {
     throw new Error(
       "Set TELEGRAM_USER_API_ID and TELEGRAM_USER_API_HASH with `npm run setup-telegram-publisher`.",
     );
   }
-  return { apiId: cfg.telegramUserApiId, apiHash: cfg.telegramUserApiHash };
+  return {
+    apiId: telegramPublisherCfg.telegramUserApiId,
+    apiHash: telegramPublisherCfg.telegramUserApiHash,
+  };
 }
 
 function clientFor(session: string): TelegramClient<InstanceType<typeof StringSession>> {
@@ -45,7 +48,7 @@ async function choosePublishChannel(
   }
 
   const configured = channels.find(
-    (channel) => channel.id.toString() === cfg.telegramPublishChannelId,
+    (channel) => channel.id.toString() === telegramPublisherCfg.telegramPublishChannelId,
   );
   if (configured) return configured;
 
@@ -100,7 +103,7 @@ export async function loginTelegramPublisher(prompt: LoginPrompt): Promise<void>
 
 /** Publish to the one channel configured by the local operator, as that user. */
 export async function publishToTelegramChannel(text: string): Promise<number> {
-  if (!cfg.telegramPublisherEnabled) {
+  if (!telegramPublisherCfg.telegramPublisherEnabled) {
     throw new Error(
       "Channel publishing is not configured. Run `npm run setup-telegram-publisher` first.",
     );
@@ -127,7 +130,7 @@ export async function publishToTelegramChannel(text: string): Promise<number> {
       .find(
         (entity): entity is Api.Channel =>
           entity instanceof Api.Channel &&
-          entity.id.toString() === cfg.telegramPublishChannelId &&
+          entity.id.toString() === telegramPublisherCfg.telegramPublishChannelId &&
           (entity.creator || entity.adminRights?.postMessages === true),
       );
     if (!channel) {

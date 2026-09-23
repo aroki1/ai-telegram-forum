@@ -41,6 +41,7 @@ Read `README.md` for the user-facing picture; this file is the working contract.
 | `src/tg-tools.ts` | shared send implementation + Claude's in-process MCP server |
 | `src/telegram-publisher.ts` | local Telegram user session and approved posts to one selected channel |
 | `src/telegram-publisher-login.ts` | interactive local account login and private-channel selection |
+| `src/telegram-publisher-config.ts` | publisher-only env settings, independent of bot credentials |
 | `src/status.ts` | the live status line / turn summary message |
 | `src/limits.ts` | plan rate limits (5-hour / weekly) behind `/usage` |
 | `src/render.ts` | markdown → topic messages, with format fallback |
